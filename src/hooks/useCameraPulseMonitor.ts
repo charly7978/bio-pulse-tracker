@@ -17,8 +17,15 @@ export function useCameraPulseMonitor() {
     isActive: false,
     hasTorch: false,
     isTorchOn: false,
+    is3aLocked: false,
     fps: 0,
     resolution: { width: 0, height: 0 },
+    capabilities: {
+      hasTorch: false,
+      hasManualExposure: false,
+      hasManualWhiteBalance: false,
+      hasManualFocus: false,
+    },
     error: null,
   });
 
