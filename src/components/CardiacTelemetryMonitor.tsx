@@ -136,8 +136,10 @@ export function CardiacTelemetryMonitor() {
         muted
         autoPlay
         className="camera-bg"
-        style={{ opacity: isMonitoring ? 0.5 : 0 }}
+        style={{ opacity: isMonitoring ? 0.80 : 0 }}
       />
+      {/* Vignette para enmarcar la previsualización */}
+      <div className="camera-vignette" style={{ opacity: isMonitoring ? 1 : 0 }} />
 
       {/* ═══ Capa 1: Interfaz Spatial superpuesta ═══ */}
       <div className="monitor-overlay">

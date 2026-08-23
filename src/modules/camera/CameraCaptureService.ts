@@ -102,12 +102,13 @@ export class CameraCaptureService {
     }
 
     // Flujo Web con Bloqueo 3A
+    // Request higher resolution for the live preview; processing canvas downsamples to 320x240
     const constraints: MediaStreamConstraints = {
       audio: false,
       video: {
         facingMode: 'environment',
-        width: { ideal: 320 },
-        height: { ideal: 240 },
+        width: { ideal: 640, min: 320 },
+        height: { ideal: 480, min: 240 },
         frameRate: { ideal: 60, min: 30 },
       },
     };
