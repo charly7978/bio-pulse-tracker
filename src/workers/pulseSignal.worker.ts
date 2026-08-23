@@ -15,6 +15,7 @@ import { SpatialCapillaryRoiExtractor, HemoglobinSpectraDetector, BiologicalLive
 import { PpgSignalDenoisingPipeline } from '../modules/filtering';
 import { ElgendiPeakDetector, PhysiologicalRrFilter } from '../modules/peak-detection';
 import { HrvEngine, Spo2Engine, PulseWaveAnalysisEngine } from '../modules/vital-signs';
+import { ArrhythmiaClassifier } from '../modules/arrhythmia';
 
 const spatialExtractor = new SpatialCapillaryRoiExtractor({ gridRows: 4, gridCols: 4, pixelStride: 2 });
 const hemoglobinDetector = new HemoglobinSpectraDetector();
@@ -24,6 +25,7 @@ const rrFilter = new PhysiologicalRrFilter();
 const hrvEngine = new HrvEngine(30);
 const spo2Engine = new Spo2Engine(60);
 const pwaEngine = new PulseWaveAnalysisEngine();
+const arrhythmiaClassifier = new ArrhythmiaClassifier();
 const livenessAttractor = new BiologicalLivenessAttractor({ sampleRate: 30, minSamplesWindow: 45 });
 
 const signalWindowBuffer: number[] = [];
@@ -103,13 +105,13 @@ self.onmessage = (event: MessageEvent) => {
 
         // 5. HRV Engine
         hrvEngine.pushRrInterval(rrMetrics.rrIntervalMs);
-
-        // 6. Pulse Wave Analysis (PWA)
-        pwaEngine.analyzePulseCycle(120, rrMetrics.rrIntervalMs, smoothedBpm);
       }
     } else {
       smoothedBpm = rrFilter.getSmoothedBpm();
     }
+
+    // 6. Pulse Wave Analysis (PWA)
+    const pwaMetrics = pwaEngine.analyzePulseCycle(120, 850, smoothedBpm);
 
     // 7. SpO2 Engine
     spo2Engine.pushSample(spatialResult.weightedRed, spatialResult.weightedGreen);
@@ -118,10 +120,25 @@ self.onmessage = (event: MessageEvent) => {
     // 8. HRV Metrics
     const hrvMetrics = hrvEngine.computeMetrics();
 
-    // 9. Atractor biológico de vivacidad
+    // 9. Clasificador de Arritmias
+    const arrhythmiaDiagnosis = detectedPeak
+      ? arrhythmiaClassifier.processInterval(
+          60000 / Math.max(30, smoothedBpm),
+          smoothedBpm,
+          hrvMetrics.rmssdMs,
+          timestampMs
+        )
+      : arrhythmiaClassifier.processInterval(
+          800,
+          smoothedBpm,
+          hrvMetrics.rmssdMs,
+          timestampMs
+        );
+
+    // 10. Atractor biológico de vivacidad
     const livenessVerdict = livenessAttractor.evaluateSignal(signalWindowBuffer);
 
-    // 10. Emisión de telemetría completa
+    // 11. Emisión de telemetría completa
     self.postMessage({
       type: 'TELEMETRY_UPDATE',
       payload: {
@@ -141,6 +158,8 @@ self.onmessage = (event: MessageEvent) => {
         livenessVerdict,
         spo2Metrics,
         hrvMetrics,
+        pwaMetrics,
+        arrhythmiaDiagnosis,
       },
     });
   }

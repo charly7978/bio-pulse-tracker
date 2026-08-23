@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { Heart, Activity, ShieldCheck, Zap, Camera, CameraOff, Sparkles, AlertCircle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Heart, Activity, ShieldCheck, Zap, Camera, CameraOff, Sparkles, AlertCircle, FileText, Download, CheckCircle2 } from 'lucide-react';
 import { TelemetryCanvasEngine } from '../modules/visualization';
 import { useCameraPulseMonitor } from '../hooks/useCameraPulseMonitor';
+import { ClinicalReportGenerator } from '../modules/clinical-report';
 
 export interface CardiacTelemetryMonitorProps {
   className?: string;
@@ -11,14 +12,19 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   const {
     isMonitoring,
+    sessionDurationSec,
+    isSessionComplete,
+    lastReport,
     cameraState,
     clinicalVitals,
     startMonitoring,
     stopMonitoring,
     toggleTorch,
+    generateReport,
     registerCanvasEngine,
   } = useCameraPulseMonitor();
 
@@ -82,6 +88,39 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
     }
   };
 
+  const handleOpenReport = () => {
+    generateReport();
+    setShowReportModal(true);
+  };
+
+  const handleDownloadCsv = () => {
+    const report = lastReport || generateReport();
+    const csvContent = ClinicalReportGenerator.generateCsv(report);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Reporte_Cardiovascular_${report.sessionId}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDownloadMarkdown = () => {
+    const report = lastReport || generateReport();
+    const mdContent = ClinicalReportGenerator.generateMarkdown(report);
+    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Reporte_Cardiovascular_${report.sessionId}.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const sessionProgress = Math.min(100, Math.round((sessionDurationSec / 30) * 100));
+
   return (
     <div className={`glass-panel ${className}`} style={{ padding: '1.25rem', position: 'relative', overflow: 'hidden' }}>
       {/* Video Element oculto para captura del sensor */}
@@ -107,6 +146,24 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
           fontSize: '0.85rem'
         }}>
           <AlertCircle size={16} /> Error de cámara: {cameraState.error}
+        </div>
+      )}
+
+      {/* Barra de Progreso de Sesión (30s de Calibración Fisiológica) */}
+      {isMonitoring && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.35rem' }}>
+            <span>Sesión Clínica: {sessionDurationSec}s / 30s</span>
+            <span>{sessionProgress}% {isSessionComplete ? '(Sesión Completa)' : ''}</span>
+          </div>
+          <div style={{ width: '100%', height: '4px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '9999px', overflow: 'hidden' }}>
+            <div style={{
+              width: `${sessionProgress}%`,
+              height: '100%',
+              background: isSessionComplete ? '#10b981' : '#f43f5e',
+              transition: 'width 0.3s ease-out'
+            }} />
+          </div>
         </div>
       )}
 
@@ -145,7 +202,7 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#fbbf24', fontSize: '0.75rem', fontWeight: 600 }}>
             <ShieldCheck size={14} /> CONTACTO
           </div>
-          <div style={{ fontSize: '0.9rem', fontWeight: 600, marginTop: '0.6rem' }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginTop: '0.6rem' }}>
             {clinicalVitals.contactState === 'STABLE_CONTACT' ? (
               <span style={{ color: '#4ade80' }}>TEJIDO ACTIVO</span>
             ) : clinicalVitals.contactState === 'UNSTABLE_CONTACT' ? (
@@ -156,6 +213,28 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
           </div>
         </div>
       </div>
+
+      {/* Banner de Diagnóstico de Ritmo y Arritmias */}
+      {clinicalVitals.contactState === 'STABLE_CONTACT' && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0.6rem 0.9rem',
+          marginBottom: '1rem',
+          borderRadius: '0.5rem',
+          background: clinicalVitals.arrhythmia.primaryRhythm === 'NORMAL_SINUS' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.15)',
+          border: `1px solid ${clinicalVitals.arrhythmia.primaryRhythm === 'NORMAL_SINUS' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.35)'}`,
+          fontSize: '0.82rem'
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: clinicalVitals.arrhythmia.primaryRhythm === 'NORMAL_SINUS' ? '#34d399' : '#fbbf24', fontWeight: 600 }}>
+            <CheckCircle2 size={16} /> Ritmo: {clinicalVitals.arrhythmia.clinicalSummary}
+          </span>
+          <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+            Presión Estimada: {clinicalVitals.estimatedSystolic}/{clinicalVitals.estimatedDiastolic} mmHg
+          </span>
+        </div>
+      )}
 
       {/* Visor de Onda PPG en Tiempo Real */}
       <div style={{ position: 'relative', width: '100%', height: '240px', borderRadius: '0.75rem', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
@@ -186,20 +265,41 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
       </div>
 
       {/* Barra de Controles en Vivo */}
-      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
         <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           {isMonitoring && (
             <>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#4ade80' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
-                Sensor en Vivo ({cameraState.fps} FPS)
+                Sensor 3A Bloqueado ({cameraState.fps} FPS)
               </span>
               <span>{cameraState.resolution.width}x{cameraState.resolution.height}</span>
             </>
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {(isSessionComplete || sessionDurationSec >= 10) && (
+            <button
+              onClick={handleOpenReport}
+              style={{
+                background: 'rgba(56, 189, 248, 0.15)',
+                color: '#38bdf8',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                padding: '0.55rem 0.9rem',
+                borderRadius: '0.5rem',
+                cursor: 'pointer',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              <FileText size={14} /> Reporte Clínico
+            </button>
+          )}
+
           {cameraState.hasTorch && (
             <button
               onClick={toggleTorch}
@@ -207,7 +307,7 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
                 background: cameraState.isTorchOn ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.05)',
                 color: cameraState.isTorchOn ? '#fbbf24' : '#94a3b8',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
-                padding: '0.5rem 0.9rem',
+                padding: '0.55rem 0.9rem',
                 borderRadius: '0.5rem',
                 cursor: 'pointer',
                 fontSize: '0.82rem',
@@ -250,6 +350,102 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
           </button>
         </div>
       </div>
+
+      {/* Modal de Reporte Clínico */}
+      {showReportModal && lastReport && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(3, 7, 18, 0.85)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 50,
+          padding: '1rem'
+        }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff' }}>Informe Clínico de Medición</h2>
+              <button
+                onClick={() => setShowReportModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.25rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.6' }}>
+              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.5rem', marginBottom: '1rem' }}>
+                <p><strong>ID:</strong> {lastReport.sessionId}</p>
+                <p><strong>Duración:</strong> {lastReport.durationSeconds} segundos | <strong>Calidad (SQI):</strong> {(lastReport.signalQualityIndex * 100).toFixed(0)}%</p>
+                <p><strong>Ritmo:</strong> <span style={{ color: '#4ade80' }}>{lastReport.arrhythmia.primaryRhythm}</span></p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
+                  <p style={{ color: '#f43f5e', fontWeight: 600 }}>Frecuencia Cardíaca</p>
+                  <p style={{ fontSize: '1.25rem', fontWeight: 700 }}>{lastReport.averageBpm} LPM</p>
+                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Rango: {lastReport.minBpm} - {lastReport.maxBpm} LPM</p>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
+                  <p style={{ color: '#38bdf8', fontWeight: 600 }}>Saturación SpO₂</p>
+                  <p style={{ fontSize: '1.25rem', fontWeight: 700 }}>{lastReport.spo2.spo2Percent}%</p>
+                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Presión: {lastReport.pwa.estimatedSystolicMmHg}/{lastReport.pwa.estimatedDiastolicMmHg} mmHg</p>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
+                  <p style={{ color: '#a855f7', fontWeight: 600 }}>HRV (RMSSD / SDNN)</p>
+                  <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>{lastReport.hrv.rmssdMs} ms / {lastReport.hrv.sdnnMs} ms</p>
+                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>pNN50: {(lastReport.hrv.pnn50Ratio * 100).toFixed(0)}%</p>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
+                  <p style={{ color: '#fbbf24', fontWeight: 600 }}>Complejidad del Ritmo</p>
+                  <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>SampEn: {lastReport.arrhythmia.sampleEntropy}</p>
+                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>PVC: {lastReport.arrhythmia.pvcCount} | PAC: {lastReport.arrhythmia.pacCount}</p>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+              <button
+                onClick={handleDownloadCsv}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: '#fff',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  padding: '0.6rem 1rem',
+                  borderRadius: '0.5rem',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem'
+                }}
+              >
+                <Download size={14} /> Exportar CSV
+              </button>
+              <button
+                onClick={handleDownloadMarkdown}
+                style={{
+                  background: '#f43f5e',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '0.6rem 1.2rem',
+                  borderRadius: '0.5rem',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem'
+                }}
+              >
+                <Download size={14} /> Descargar Informe (MD)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
