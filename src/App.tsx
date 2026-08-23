@@ -1,4 +1,5 @@
 import { Activity, ShieldCheck, Cpu, Waves } from 'lucide-react';
+import { CardiacTelemetryMonitor } from './components/CardiacTelemetryMonitor';
 
 export default function App() {
   return (
@@ -27,6 +28,10 @@ export default function App() {
         </p>
       </header>
 
+      <section style={{ marginBottom: '2rem' }}>
+        <CardiacTelemetryMonitor />
+      </section>
+
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
         <div className="glass-panel" style={{ padding: '1.25rem' }}>
           <div style={{ color: '#38bdf8', marginBottom: '0.5rem' }}><ShieldCheck size={24} /></div>
@@ -46,7 +51,7 @@ export default function App() {
 
         <div className="glass-panel" style={{ padding: '1.25rem' }}>
           <div style={{ color: '#f43f5e', marginBottom: '0.5rem' }}><Waves size={24} /></div>
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>Atractor SPAR</h3>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>Atractor SPAR 2D</h3>
           <p style={{ color: '#64748b', fontSize: '0.82rem' }}>
             Validación de recurrencia en espacio de fases 2D para cero falsos positivos (Pettit & Charlton 2024).
           </p>
