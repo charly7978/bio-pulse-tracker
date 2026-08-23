@@ -206,11 +206,10 @@ html, body, #root {
   overflow: hidden;
   margin: 0 10px;
   border-radius: 16px;
-  background: var(--spatial-glass);
-  backdrop-filter: blur(40px) saturate(1.6);
-  -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  /* Transparent — camera preview shows through */
+  background: rgba(0, 0, 0, 0.18);
   border: 0.5px solid var(--spatial-border);
-  box-shadow: var(--spatial-shadow-elevated);
+  box-shadow: var(--spatial-shadow);
 }
 
 .waveform-container::before {

@@ -107,9 +107,8 @@ export class TelemetryCanvasEngine {
     ctx.save();
     ctx.scale(dpr, dpr);
 
-    // 1. Limpieza con fondo profundo de telemetría médica
-    ctx.fillStyle = '#030712';
-    ctx.fillRect(0, 0, width, height);
+    // 1. Limpieza — fondo transparente para dejar ver la cámara por debajo
+    ctx.clearRect(0, 0, width, height);
 
     // 2. Cuadrícula médica milimétrica
     if (showGrid) {
@@ -271,7 +270,7 @@ export class TelemetryCanvasEngine {
 
     ctx.save();
     // Fondo de panel de atractor
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
     ctx.lineWidth = 1;
     ctx.beginPath();
