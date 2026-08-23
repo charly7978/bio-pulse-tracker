@@ -1,24 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
-import { Heart, Activity, ShieldCheck, Zap } from 'lucide-react';
-import { TelemetryCanvasEngine, TelemetryFrame } from '../modules/visualization';
+import { useEffect, useRef } from 'react';
+import { Heart, Activity, ShieldCheck, Zap, Camera, CameraOff, Sparkles, AlertCircle } from 'lucide-react';
+import { TelemetryCanvasEngine } from '../modules/visualization';
+import { useCameraPulseMonitor } from '../hooks/useCameraPulseMonitor';
 
 export interface CardiacTelemetryMonitorProps {
   className?: string;
-  onEngineReady?: (engine: TelemetryCanvasEngine) => void;
 }
 
-export function CardiacTelemetryMonitor({ className = '', onEngineReady }: CardiacTelemetryMonitorProps) {
+export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMonitorProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const engineRef = useRef<TelemetryCanvasEngine | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  const [hudMetrics, setHudMetrics] = useState({
-    bpm: 0,
-    sqi: 0,
-    pi: 0,
-    confidence: 0,
-    contactState: 'NO_CONTACT' as TelemetryFrame['contactState'],
-  });
+  const {
+    isMonitoring,
+    cameraState,
+    clinicalVitals,
+    startMonitoring,
+    stopMonitoring,
+    toggleTorch,
+    registerCanvasEngine,
+  } = useCameraPulseMonitor();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -29,7 +31,7 @@ export function CardiacTelemetryMonitor({ className = '', onEngineReady }: Cardi
 
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.clientWidth || 600;
-    const height = canvas.clientHeight || 280;
+    const height = canvas.clientHeight || 260;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -39,8 +41,8 @@ export function CardiacTelemetryMonitor({ className = '', onEngineReady }: Cardi
       height,
       dpr,
     });
-    engineRef.current = engine;
-    if (onEngineReady) onEngineReady(engine);
+
+    registerCanvasEngine(engine);
 
     // Bucle de renderizado continuo a 60 FPS
     let isRunning = true;
@@ -68,123 +70,185 @@ export function CardiacTelemetryMonitor({ className = '', onEngineReady }: Cardi
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       window.removeEventListener('resize', handleResize);
     };
-  }, [onEngineReady]);
+  }, [registerCanvasEngine]);
 
-  // Demo generator para verificar fluidez visual en desarrollo
-  const simulateLivePulse = () => {
-    const engine = engineRef.current;
-    if (!engine) return;
-
-    let t = 0;
-    const interval = setInterval(() => {
-      t += 0.033;
-      const hrHz = 1.2; // 72 BPM
-      const val = Math.sin(2 * Math.PI * hrHz * t) + 0.35 * Math.sin(4 * Math.PI * hrHz * t + 0.5);
-      const isPeak = Math.sin(2 * Math.PI * hrHz * t) > 0.98;
-
-      const frame: TelemetryFrame = {
-        timestampMs: performance.now(),
-        filteredValue: val,
-        rawRed: 195,
-        rawGreen: 42,
-        rawBlue: 18,
-        isPeak,
-        sqi: 0.96,
-        pi: 2.4,
-        bpm: 72,
-        confidence: 0.95,
-        contactState: 'STABLE_CONTACT',
-      };
-
-      engine.pushFrame(frame);
-      setHudMetrics({
-        bpm: 72,
-        sqi: 96,
-        pi: 2.4,
-        confidence: 95,
-        contactState: 'STABLE_CONTACT',
-      });
-    }, 33);
-
-    return () => clearInterval(interval);
+  const handleToggleMonitoring = () => {
+    if (isMonitoring) {
+      stopMonitoring();
+    } else {
+      if (videoRef.current) {
+        startMonitoring(videoRef.current);
+      }
+    }
   };
 
   return (
     <div className={`glass-panel ${className}`} style={{ padding: '1.25rem', position: 'relative', overflow: 'hidden' }}>
-      {/* HUD Superior de Telemetría Clínica */}
+      {/* Video Element oculto para captura del sensor */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        style={{ display: 'none' }}
+      />
+
+      {/* Alerta de error de cámara si ocurre */}
+      {cameraState.error && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.75rem',
+          marginBottom: '1rem',
+          borderRadius: '0.5rem',
+          background: 'rgba(239, 68, 68, 0.15)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          color: '#f87171',
+          fontSize: '0.85rem'
+        }}>
+          <AlertCircle size={16} /> Error de cámara: {cameraState.error}
+        </div>
+      )}
+
+      {/* HUD Superior de Telemetría Clínica en Vivo */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1rem' }}>
         <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#f43f5e', fontSize: '0.75rem', fontWeight: 600 }}>
-            <Heart size={14} className={hudMetrics.bpm > 0 ? 'animate-pulse' : ''} /> FRECUENCIA
+            <Heart size={14} className={clinicalVitals.bpm > 0 ? 'animate-pulse' : ''} /> FRECUENCIA (BPM)
           </div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff', marginTop: '0.2rem' }}>
-            {hudMetrics.bpm > 0 ? hudMetrics.bpm : '--'}{' '}
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>BPM</span>
+            {clinicalVitals.bpm > 0 ? clinicalVitals.bpm : '--'}{' '}
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>LPM</span>
           </div>
         </div>
 
         <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#38bdf8', fontSize: '0.75rem', fontWeight: 600 }}>
-            <Activity size={14} /> PERFUSIÓN (PI)
+            <Activity size={14} /> SATURACIÓN (SpO₂)
           </div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff', marginTop: '0.2rem' }}>
-            {hudMetrics.pi > 0 ? hudMetrics.pi.toFixed(1) : '--'}{' '}
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>%</span>
+            {clinicalVitals.contactState === 'STABLE_CONTACT' ? `${clinicalVitals.spo2}%` : '--'}
           </div>
         </div>
 
         <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#4ade80', fontSize: '0.75rem', fontWeight: 600 }}>
-            <ShieldCheck size={14} /> CALIDAD (SQI)
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#a855f7', fontSize: '0.75rem', fontWeight: 600 }}>
+            <Sparkles size={14} /> HRV (RMSSD)
           </div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff', marginTop: '0.2rem' }}>
-            {hudMetrics.sqi > 0 ? hudMetrics.sqi : '--'}{' '}
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>%</span>
+            {clinicalVitals.rmssd > 0 ? clinicalVitals.rmssd : '--'}{' '}
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>ms</span>
           </div>
         </div>
 
         <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#fbbf24', fontSize: '0.75rem', fontWeight: 600 }}>
-            <Zap size={14} /> ESTADO ÓPTICO
+            <ShieldCheck size={14} /> CONTACTO
           </div>
-          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#f8fafc', marginTop: '0.6rem' }}>
-            {hudMetrics.contactState === 'STABLE_CONTACT' ? (
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, marginTop: '0.6rem' }}>
+            {clinicalVitals.contactState === 'STABLE_CONTACT' ? (
               <span style={{ color: '#4ade80' }}>TEJIDO ACTIVO</span>
+            ) : clinicalVitals.contactState === 'UNSTABLE_CONTACT' ? (
+              <span style={{ color: '#f59e0b' }}>AJUSTANDO DEDO</span>
             ) : (
-              <span style={{ color: '#94a3b8' }}>LISTO</span>
+              <span style={{ color: '#94a3b8' }}>COLOCA EL DEDO</span>
             )}
           </div>
         </div>
       </div>
 
-      {/* Visor de Onda PPG */}
+      {/* Visor de Onda PPG en Tiempo Real */}
       <div style={{ position: 'relative', width: '100%', height: '240px', borderRadius: '0.75rem', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
         <canvas
           ref={canvasRef}
           style={{ width: '100%', height: '100%', display: 'block' }}
         />
+
+        {/* Guía en pantalla si no está monitoreando */}
+        {!isMonitoring && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(3, 7, 18, 0.75)',
+            backdropFilter: 'blur(4px)',
+            gap: '0.75rem'
+          }}>
+            <Camera size={36} style={{ color: '#f43f5e' }} />
+            <p style={{ color: '#cbd5e1', fontSize: '0.9rem', fontWeight: 500 }}>
+              Cámara en espera. Pulsa INICIAR MONITOREO para capturar el pulso capilar.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Botón de Demostración de Telemetría */}
-      <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
-        <button
-          onClick={simulateLivePulse}
-          style={{
-            background: 'rgba(244, 63, 94, 0.15)',
-            color: '#fb7185',
-            border: '1px solid rgba(244, 63, 94, 0.35)',
-            padding: '0.45rem 1rem',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            fontSize: '0.82rem',
-            fontWeight: 600,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.4rem'
-          }}
-        >
-          <Activity size={14} /> Test Telemetría 60 FPS
-        </button>
+      {/* Barra de Controles en Vivo */}
+      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {isMonitoring && (
+            <>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#4ade80' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
+                Sensor en Vivo ({cameraState.fps} FPS)
+              </span>
+              <span>{cameraState.resolution.width}x{cameraState.resolution.height}</span>
+            </>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          {cameraState.hasTorch && (
+            <button
+              onClick={toggleTorch}
+              style={{
+                background: cameraState.isTorchOn ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                color: cameraState.isTorchOn ? '#fbbf24' : '#94a3b8',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                padding: '0.5rem 0.9rem',
+                borderRadius: '0.5rem',
+                cursor: 'pointer',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              <Zap size={14} /> Flash {cameraState.isTorchOn ? 'ON' : 'OFF'}
+            </button>
+          )}
+
+          <button
+            onClick={handleToggleMonitoring}
+            style={{
+              background: isMonitoring ? '#e11d48' : '#f43f5e',
+              color: '#ffffff',
+              border: 'none',
+              padding: '0.55rem 1.25rem',
+              borderRadius: '0.5rem',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              boxShadow: isMonitoring ? '0 0 15px rgba(225, 29, 72, 0.4)' : '0 0 15px rgba(244, 63, 94, 0.3)'
+            }}
+          >
+            {isMonitoring ? (
+              <>
+                <CameraOff size={16} /> DETENER MONITOREO
+              </>
+            ) : (
+              <>
+                <Camera size={16} /> INICIAR MONITOREO EN VIVO
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
