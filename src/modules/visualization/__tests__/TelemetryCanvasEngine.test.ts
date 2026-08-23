@@ -61,4 +61,15 @@ describe('TelemetryCanvasEngine', () => {
       contactState: 'STABLE_CONTACT',
     })).not.toThrow();
   });
+
+  it('permite alternar temas cromáticos (Emerald, Ruby, Cobalt) y derivadas APG', () => {
+    expect(() => engine.setColorTheme('RUBY')).not.toThrow();
+    expect(() => engine.setColorTheme('COBALT')).not.toThrow();
+    expect(() => engine.setColorTheme('EMERALD')).not.toThrow();
+
+    const derivState1 = engine.toggleDerivatives();
+    expect(derivState1).toBe(true);
+    const derivState2 = engine.toggleDerivatives();
+    expect(derivState2).toBe(false);
+  });
 });

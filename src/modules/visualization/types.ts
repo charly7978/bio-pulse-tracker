@@ -2,6 +2,9 @@
  * Tipos e interfaces para el motor de renderizado de telemetría médica en Canvas.
  */
 
+export type RenderMode = 'SWEEP' | 'ROLL';
+export type ColorTheme = 'EMERALD' | 'RUBY' | 'COBALT';
+
 export interface TelemetryFrame {
   timestampMs: number;
   filteredValue: number;
@@ -26,7 +29,13 @@ export interface CanvasEngineConfig {
   showGrid: boolean;
   showPoincarePlot: boolean;
   showFiducialPeaks: boolean;
+  showDicroticNotch: boolean;
   showHudMetrics: boolean;
+  showDerivatives: boolean;
+  showVolumetricGlow: boolean;
+  showTachogram: boolean;
+  renderMode: RenderMode;
+  colorTheme: ColorTheme;
 }
 
 export interface PoincarePoint {

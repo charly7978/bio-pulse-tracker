@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Heart, Activity, ShieldCheck, Zap, Camera, CameraOff,
-  FileText, Download, CheckCircle2, X, Fingerprint,
+  FileText, Download, CheckCircle2, X, Fingerprint, Waves, Palette,
 } from 'lucide-react';
-import { TelemetryCanvasEngine } from '../modules/visualization';
+import { TelemetryCanvasEngine, ColorTheme } from '../modules/visualization';
 import { useCameraPulseMonitor } from '../hooks/useCameraPulseMonitor';
 import { ClinicalReportGenerator } from '../modules/clinical-report';
 
@@ -11,7 +11,11 @@ export function CardiacTelemetryMonitor() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const engineRef = useRef<TelemetryCanvasEngine | null>(null);
+
   const [showReportModal, setShowReportModal] = useState(false);
+  const [colorTheme, setColorTheme] = useState<ColorTheme>('EMERALD');
+  const [showDerivatives, setShowDerivatives] = useState(false);
 
   const {
     isMonitoring,
@@ -43,7 +47,14 @@ export function CardiacTelemetryMonitor() {
     canvas.width = width * dpr;
     canvas.height = height * dpr;
 
-    const engine = new TelemetryCanvasEngine({ width, height, dpr });
+    const engine = new TelemetryCanvasEngine({
+      width,
+      height,
+      dpr,
+      colorTheme,
+      showDerivatives,
+    });
+    engineRef.current = engine;
     registerCanvasEngine(engine);
 
     let isRunning = true;
@@ -76,6 +87,23 @@ export function CardiacTelemetryMonitor() {
       stopMonitoring();
     } else if (videoRef.current) {
       startMonitoring(videoRef.current);
+    }
+  };
+
+  const handleCycleTheme = () => {
+    const themes: ColorTheme[] = ['EMERALD', 'RUBY', 'COBALT'];
+    const nextIdx = (themes.indexOf(colorTheme) + 1) % themes.length;
+    const nextTheme = themes[nextIdx]!;
+    setColorTheme(nextTheme);
+    if (engineRef.current) {
+      engineRef.current.setColorTheme(nextTheme);
+    }
+  };
+
+  const handleToggleDerivatives = () => {
+    if (engineRef.current) {
+      const nextState = engineRef.current.toggleDerivatives();
+      setShowDerivatives(nextState);
     }
   };
 
@@ -148,7 +176,7 @@ export function CardiacTelemetryMonitor() {
         <div className="status-bar">
           <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--accent-heart)', fontWeight: 800 }}>
             <Heart size={10} className={clinicalVitals.bpm > 0 ? 'animate-pulse' : ''} />
-            BIO-PULSE
+            BIO-PULSE TRACKER
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {isMonitoring ? (
@@ -242,7 +270,7 @@ export function CardiacTelemetryMonitor() {
               {clinicalVitals.arrhythmia.clinicalSummary}
             </span>
             <span style={{ color: 'rgba(255,255,255,0.30)', fontSize: '0.60rem', fontWeight: 500 }}>
-              Estrés {clinicalVitals.stressIndex.toFixed(1)}
+              Estrés {clinicalVitals.stressIndex.toFixed(1)} · Notch Dícroto Activo
             </span>
           </div>
         )}
@@ -286,6 +314,22 @@ export function CardiacTelemetryMonitor() {
                 {cameraState.isTorchOn ? 'ON' : 'OFF'}
               </button>
             )}
+
+            {/* Selector de paleta cromática */}
+            <button className="btn-secondary" onClick={handleCycleTheme} title="Cambiar tema cromático">
+              <Palette size={13} /> {colorTheme}
+            </button>
+
+            {/* Toggle de derivadas morfológicas APG/VPG */}
+            <button
+              className="btn-secondary"
+              onClick={handleToggleDerivatives}
+              style={{ color: showDerivatives ? 'var(--accent-signal)' : undefined }}
+              title="Mostrar aceleración de pulso APG (d²PPG/dt²)"
+            >
+              <Waves size={13} /> APG
+            </button>
+
             {(isSessionComplete || sessionDurationSec >= 10) && (
               <button className="btn-secondary" onClick={handleOpenReport}
                 style={{ color: 'var(--accent-signal)' }}>
