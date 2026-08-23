@@ -124,6 +124,23 @@ export class TelemetryCanvasEngine {
       this.drawPoincarePlot(ctx, width, height);
     }
 
+    // 5. Overlay de telemetría médica en Canvas
+    if (this.config.showHudMetrics && this.lastContact !== 'NO_CONTACT') {
+      this.drawHudMetricsOverlay(ctx);
+    }
+
+    ctx.restore();
+  }
+
+  private drawHudMetricsOverlay(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    ctx.font = '600 11px var(--font-mono), monospace';
+    ctx.fillStyle = '#f43f5e';
+    ctx.fillText(`${this.lastBpm > 0 ? this.lastBpm : '--'} BPM`, 14, 22);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(`PI ${this.lastPi > 0 ? this.lastPi.toFixed(1) : '--'}%`, 85, 22);
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText(`SQI ${Math.round(this.lastSqi * 100)}%`, 155, 22);
     ctx.restore();
   }
 
