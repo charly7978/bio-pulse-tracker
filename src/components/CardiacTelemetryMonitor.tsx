@@ -202,13 +202,13 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#fbbf24', fontSize: '0.75rem', fontWeight: 600 }}>
             <ShieldCheck size={14} /> CONTACTO
           </div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginTop: '0.6rem' }}>
+          <div style={{ fontSize: '0.82rem', fontWeight: 600, marginTop: '0.6rem' }}>
             {clinicalVitals.contactState === 'STABLE_CONTACT' ? (
-              <span style={{ color: '#4ade80' }}>TEJIDO ACTIVO</span>
+              <span style={{ color: '#4ade80' }}>SANGRE VIVA</span>
             ) : clinicalVitals.contactState === 'UNSTABLE_CONTACT' ? (
-              <span style={{ color: '#f59e0b' }}>AJUSTANDO DEDO</span>
+              <span style={{ color: '#f59e0b' }}>VALIDANDO PULSO...</span>
             ) : (
-              <span style={{ color: '#94a3b8' }}>COLOCA EL DEDO</span>
+              <span style={{ color: '#94a3b8' }}>SIN SANGRE / INERTE</span>
             )}
           </div>
         </div>

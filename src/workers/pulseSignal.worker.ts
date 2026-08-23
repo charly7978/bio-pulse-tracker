@@ -11,7 +11,7 @@
  * 6. Validación de atractor biológico de recurrencia (SPAR).
  */
 
-import { SpatialCapillaryRoiExtractor, HemoglobinSpectraDetector, BiologicalLivenessAttractor } from '../modules/optical-detection';
+import { SpatialCapillaryRoiExtractor, HemoglobinSpectraDetector, BiologicalLivenessAttractor, DynamicVolumetricLivenessEngine } from '../modules/optical-detection';
 import { PpgSignalDenoisingPipeline } from '../modules/filtering';
 import { ElgendiPeakDetector, PhysiologicalRrFilter } from '../modules/peak-detection';
 import { HrvEngine, Spo2Engine, PulseWaveAnalysisEngine } from '../modules/vital-signs';
@@ -19,6 +19,7 @@ import { ArrhythmiaClassifier } from '../modules/arrhythmia';
 
 const spatialExtractor = new SpatialCapillaryRoiExtractor({ gridRows: 4, gridCols: 4, pixelStride: 2 });
 const hemoglobinDetector = new HemoglobinSpectraDetector();
+const dynamicLiveness = new DynamicVolumetricLivenessEngine(30, 2.0);
 const denoisingPipeline = new PpgSignalDenoisingPipeline(30);
 const peakDetector = new ElgendiPeakDetector({ sampleRate: 30 });
 const rrFilter = new PhysiologicalRrFilter();
@@ -36,6 +37,7 @@ self.onmessage = (event: MessageEvent) => {
 
   if (type === 'RESET') {
     spatialExtractor.reset();
+    dynamicLiveness.reset();
     denoisingPipeline.reset();
     peakDetector.reset();
     rrFilter.reset();
@@ -58,7 +60,7 @@ self.onmessage = (event: MessageEvent) => {
     // 1. Extracción espacial de ROI por cuadrícula de tiles
     const spatialResult = spatialExtractor.extractFromRgba(rgba, width, height);
 
-    // 2. Validación espectral de hemoglobina y discriminación de tejido vivo
+    // 2. Validación espectral de hemoglobina estática
     const hemoglobinVerdict = hemoglobinDetector.evaluateFrame(
       spatialResult.weightedRed,
       spatialResult.weightedGreen,
@@ -67,12 +69,20 @@ self.onmessage = (event: MessageEvent) => {
       spatialResult.spatialCvRed
     );
 
-    // Determinar estado de contacto
+    // 3. Validación dinámica de vivacidad y pulsatilidad volumétrica de hemoglobina (Anti-Spoofing Estricto)
+    dynamicLiveness.pushSample(
+      spatialResult.weightedRed,
+      spatialResult.weightedGreen,
+      spatialResult.weightedBlue
+    );
+    const livenessVerdict = dynamicLiveness.evaluateLiveness(hemoglobinVerdict.isHumanTissue);
+
+    // Determinar estado de contacto estrictamente validado
     let contactState: 'NO_CONTACT' | 'UNSTABLE_CONTACT' | 'STABLE_CONTACT' = 'NO_CONTACT';
-    if (hemoglobinVerdict.isHumanTissue) {
+    if (livenessVerdict.isLivingBlood) {
       contactState = 'STABLE_CONTACT';
-    } else if (spatialResult.weightedRed > 40 && spatialResult.spatialCoverage > 0.3) {
-      contactState = 'UNSTABLE_CONTACT';
+    } else if (hemoglobinVerdict.isHumanTissue) {
+      contactState = 'UNSTABLE_CONTACT'; // Color compatible, pero validando pulso capilar
     }
 
     // 3. Pipeline de filtrado y cancelación de ruido adaptativa
@@ -136,7 +146,7 @@ self.onmessage = (event: MessageEvent) => {
         );
 
     // 10. Atractor biológico de vivacidad
-    const livenessVerdict = livenessAttractor.evaluateSignal(signalWindowBuffer);
+    const attractorVerdict = livenessAttractor.evaluateSignal(signalWindowBuffer);
 
     // 11. Emisión de telemetría completa
     self.postMessage({
@@ -148,14 +158,15 @@ self.onmessage = (event: MessageEvent) => {
         rawGreen: spatialResult.weightedGreen,
         rawBlue: spatialResult.weightedBlue,
         isPeak: detectedPeak !== null,
-        sqi: Math.min(1.0, (hemoglobinVerdict.confidence * 0.5 + (livenessVerdict.confidence || 0) * 0.5)),
-        pi: Math.max(0.1, (spatialResult.weightedGreen > 0 ? (denoised.agcNormalized / spatialResult.weightedGreen) * 100 : 0.5)),
-        bpm: smoothedBpm,
-        instantaneousBpm,
+        sqi: Math.min(1.0, (hemoglobinVerdict.confidence * 0.4 + livenessVerdict.confidence * 0.4 + (attractorVerdict.confidence || 0) * 0.2)),
+        pi: livenessVerdict.perfusionIndexGreen,
+        bpm: contactState === 'STABLE_CONTACT' ? smoothedBpm : 0,
+        instantaneousBpm: contactState === 'STABLE_CONTACT' ? instantaneousBpm : 0,
         isArrhythmiaCandidate,
         contactState,
         hemoglobinVerdict,
         livenessVerdict,
+        attractorVerdict,
         spo2Metrics,
         hrvMetrics,
         pwaMetrics,
