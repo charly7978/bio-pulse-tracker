@@ -64,12 +64,26 @@ Deuda / DERIVADA A MEJORA:
 - POS proyección temporal normalizada completa requiere buffer `l=32` y matriz `S = [0 1 -1; -2 1 1]` (Wang 2016 Alg.1) — excede alcance finger-transmission (no face) y se documenta como mejora futura si se habilita rPPG facial.
 - SQI espectral por banda 0.65-3.5 Hz con SNR + motion artifact index — requiere FFT por ventana (costo Worker) → backlog.
 
-## 5. Verificación
+## 5. Ronda 3–4 — Correcciones tras jueces adversarial (2026-08-23 tarde)
 
-- `tsc --noEmit` — OK (0 errores tras fixes 2026-08-23)
-- `vite build` — OK: `worker 23.35 kB`, `index 199 kB`, `css 11.75 kB`
-- `vitest run` — 16 files 36 tests OK (unitarios DSP/peak/HRV/SpO2/visualization)
-- Manual: wave flat, HUD 4→2→1, font 10 px+ legible, scanlines 0.045 no tapa pico S, ResizeObserver DPR correcto, botones 44 px, safe-area sin doble, informes `0` no se venden como `98%`.
+| Jueces R2 | Hallazgo pendiente | Parche R3–R4 |
+|-----------|--------------------|--------------|
+| Correctitud N3 RESET leak | `lastPwaMetrics`/`lastArrhythmiaTimestampMs` no limpiados en RESET → PA previa resucita | `worker.ts:53` limpia todos + `lastPwaTimestampMs=0` + `lastPeakTimestampMs=0` |
+| Correctitud N1/N4 hold infinito | PWA/BPM hold infinito entre latidos (—/— flicker o PA stale 118/78) | PWA hold con TTL 5 s (`PWA_HOLDOVER_MS`), BPM hold 5 s sin pico → 0 |
+| Correctitud N2 clamp 90-160 | Oculta crisis hipertensiva | Ampliado a 70-220 / 40-130 + etiqueta PA est. |
+| Correctitud #15 aria-live 30 Hz | 4× vital-value polite spam | Removido, solo rhythm-banner polite; status-bar `role=banner` |
+| Propósito N3 gate spo2>0 | Bloqueaba informe HR válido sin spo2 | Gate relajado a `bpm>30` (sin exigir spo2) |
+| Propósito 6 tipografía 8.64 px | <360 px label 0.54rem ilegible | 0.60rem |
+| Propósito 10 btn 40 px | INICIAR 40 <44 WCAG | 44 px |
+| Correctitud N7 gridCache `!` | `drawImage!` crash OOM | Guard `if(!gridCache) return` + `if(!g) return` |
+| Informe CSV | `INSUFFICIENT_DATA` no flaggeado | `isInsufficient()` + warnBlock markdown + columna DataQuality + esc() |
+
+## 6. Verificación final (R4)
+
+- `tsc --noEmit` — OK (0 errores)
+- `vite build` — OK: `worker 24.31 kB`, `index 200.55 kB`, `css 11.59 kB`
+- `vitest run` — 16 files 36 tests OK
+- Manual R4: wave flat sin perspective, HUD 4→2→1 sin truncar, PA est. etiquetado, BPM/PA expiran 5 s sin pico (—/—), informe gate no bloquea HR válido, SQI warn visible, tipografía 10.2 px+, botones 44 px, safe-area único.
 
 ## 6. Archivos tocados
 

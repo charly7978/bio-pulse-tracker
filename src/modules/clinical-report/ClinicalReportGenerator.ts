@@ -23,17 +23,25 @@ export interface MeasurementSessionReport {
 }
 
 export class ClinicalReportGenerator {
+  private static isInsufficient(report: MeasurementSessionReport): boolean {
+    return report.averageBpm < 30 || report.spo2.spo2Percent === 0 || report.signalQualityIndex < 0.2 || report.hrv.sampleCount < 5;
+  }
+
   /**
    * Genera el reporte clínico estructurado en formato Markdown para visualización o impresión médica.
    */
   public static generateMarkdown(report: MeasurementSessionReport): string {
+    const insufficient = ClinicalReportGenerator.isInsufficient(report);
+    const warnBlock = insufficient
+      ? `\n> ⚠️ **ADVERTENCIA — DATOS INSUFICIENTES:** Esta sesión no alcanza el mínimo de calidad (SQI ${(report.signalQualityIndex * 100).toFixed(0)}%, ${report.hrv.sampleCount} latidos). Valores de HRV/SpO₂/PA son proxy no diagnóstico. Repita la medición con dedo estable 15-30 s (Task Force ESC ≥8 latidos).\n\n---\n`
+      : '\n---\n';
     return `# REPORTE BIOMÉDICO DE TELEMETRÍA CARDIOVASCULAR
 **ID de Sesión:** \`${report.sessionId}\`  
 **Fecha y Hora:** ${new Date(report.timestampIso).toLocaleString()}  
 **Duración de Medición:** ${report.durationSeconds} segundos  
-**Índice de Calidad de Señal (SQI):** ${(report.signalQualityIndex * 100).toFixed(1)}%
+**Índice de Calidad de Señal (SQI):** ${(report.signalQualityIndex * 100).toFixed(1)}%${insufficient ? ' — **INSUFICIENTE**' : ''}
 
----
+---${warnBlock}
 
 ## 1. Signos Vitales Principales
 - **Frecuencia Cardíaca Media:** ${report.averageBpm} LPM (Rango: ${report.minBpm} - ${report.maxBpm} LPM)
@@ -67,17 +75,23 @@ export class ClinicalReportGenerator {
 
   /**
    * Genera formato CSV para exportación y análisis en software estadístico (ej. R, Python, Excel).
+   * Escapa comillas y añade sufijo INSUFFICIENT_DATA si aplica.
    */
   public static generateCsv(report: MeasurementSessionReport): string {
     const headers = [
       'SessionId', 'Timestamp', 'DurationSec', 'AvgBPM', 'MinBPM', 'MaxBPM',
       'SpO2', 'RMSSD_ms', 'SDNN_ms', 'pNN50_pct', 'StressIndex',
-      'SystolicBP_mmHg', 'DiastolicBP_mmHg', 'PrimaryRhythm', 'SampEn', 'PVC_Count', 'PAC_Count'
+      'SystolicBP_mmHg', 'DiastolicBP_mmHg', 'PrimaryRhythm', 'SampEn', 'PVC_Count', 'PAC_Count', 'DataQuality'
     ].join(',');
 
+    const quality = ClinicalReportGenerator.isInsufficient(report) ? 'INSUFFICIENT_DATA' : 'OK';
+    const esc = (v: unknown) => {
+      const s = String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
     const row = [
-      report.sessionId,
-      report.timestampIso,
+      esc(report.sessionId),
+      esc(report.timestampIso),
       report.durationSeconds,
       report.averageBpm,
       report.minBpm,
@@ -89,10 +103,11 @@ export class ClinicalReportGenerator {
       report.hrv.stressIndex,
       report.pwa.estimatedSystolicMmHg,
       report.pwa.estimatedDiastolicMmHg,
-      report.arrhythmia.primaryRhythm,
+      esc(report.arrhythmia.primaryRhythm),
       report.arrhythmia.sampleEntropy,
       report.arrhythmia.pvcCount,
       report.arrhythmia.pacCount,
+      quality,
     ].join(',');
 
     return `${headers}\n${row}`;

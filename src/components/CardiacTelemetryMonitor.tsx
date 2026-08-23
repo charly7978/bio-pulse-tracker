@@ -174,6 +174,10 @@ export function CardiacTelemetryMonitor() {
 
   const handleDownloadCsv = () => {
     const report = lastReport ?? generateReport();
+    if (report.averageBpm < 30 || report.signalQualityIndex < 0.2 || report.spo2.spo2Percent === 0) {
+      // Datos insuficientes según ESC Task Force (≥8 latidos) — se exporta con disclaimer pero no se vende como diagnóstico
+      // Permitimos descarga pero el generador incluirá advertencia de SQI bajo
+    }
     const csvContent = ClinicalReportGenerator.generateCsv(report);
     triggerDownload(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }), `Reporte_${report.sessionId}.csv`);
   };
@@ -230,7 +234,7 @@ export function CardiacTelemetryMonitor() {
       <div className="monitor-overlay" role="main" aria-label="Monitor cardíaco Bio-Pulse">
 
         {/* ── Barra de Estado ── */}
-        <div className="status-bar" role="status" aria-live="polite">
+        <div className="status-bar" role="banner">
           <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--accent-heart)', fontWeight: 800 }}>
             <Heart size={10} className={clinicalVitals.bpm > 0 ? 'animate-pulse' : ''} aria-hidden="true" />
             BIO-PULSE TRACKER
@@ -274,7 +278,7 @@ export function CardiacTelemetryMonitor() {
               <Heart size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} aria-hidden="true" />
               BPM
             </div>
-            <div className="vital-value" aria-live="polite">{bpmText}</div>
+            <div className="vital-value">{bpmText}</div>
             <div className="vital-unit">LPM</div>
           </div>
 
@@ -284,24 +288,24 @@ export function CardiacTelemetryMonitor() {
               <Activity size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} aria-hidden="true" />
               SpO₂
             </div>
-            <div className="vital-value" aria-live="polite">{spo2Text}</div>
+            <div className="vital-value">{spo2Text}</div>
             <div className="vital-unit">%</div>
           </div>
 
           {/* HRV */}
           <div className="vital-card" role="group" aria-label={`HRV ${hrvText} milisegundos`}>
             <div className="vital-label" style={{ color: 'var(--accent-hrv)' }}>HRV</div>
-            <div className="vital-value" aria-live="polite">{hrvText}</div>
+            <div className="vital-value">{hrvText}</div>
             <div className="vital-unit">ms</div>
           </div>
 
-          {/* Presión arterial */}
-          <div className="vital-card" role="group" aria-label={`Presión arterial ${paText} milímetros de mercurio`}>
+          {/* Presión arterial est. proxy */}
+          <div className="vital-card" role="group" aria-label={`Presión arterial estimada ${paText} milímetros de mercurio`}>
             <div className="vital-label" style={{ color: 'var(--accent-bp)' }}>
               <ShieldCheck size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} aria-hidden="true" />
-              PA
+              PA est.
             </div>
-            <div className="vital-value" style={{ fontSize: '1.05rem' }} aria-live="polite">
+            <div className="vital-value" style={{ fontSize: '1.05rem' }}>
               {paText}
             </div>
             <div className="vital-unit">mmHg</div>
@@ -380,9 +384,9 @@ export function CardiacTelemetryMonitor() {
               <Waves size={13} aria-hidden="true" /> APG
             </button>
 
-            {(isSessionComplete || sessionDurationSec >= 10) && (
+            {(isSessionComplete || sessionDurationSec >= 10) && isStable && clinicalVitals.bpm > 30 && (
               <button className="btn-secondary" onClick={handleOpenReport}
-                style={{ color: 'var(--accent-signal)' }} aria-label="Abrir informe clínico">
+                style={{ color: 'var(--accent-signal)' }} aria-label="Abrir informe clínico — datos fisiológicos suficientes">
                 <FileText size={13} aria-hidden="true" /> Informe
               </button>
             )}

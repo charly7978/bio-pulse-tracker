@@ -227,7 +227,7 @@ html, body, #root {
     padding: 6px 6px 4px;
   }
   .vital-value { font-size: 1.18rem; }
-  .vital-label { font-size: 0.54rem; }
+  .vital-label { font-size: 0.60rem; }
 }
 
 @media (min-width: 900px) {
@@ -445,7 +445,7 @@ html, body, #root {
   position: relative;
   overflow: hidden;
   white-space: nowrap;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .btn-monitor::before {

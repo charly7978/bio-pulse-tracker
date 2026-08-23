@@ -32,10 +32,14 @@ const spo2Engine = new Spo2Engine(60);
 const pwaEngine = new PulseWaveAnalysisEngine();
 const arrhythmiaClassifier = new ArrhythmiaClassifier();
 
-// Estado persistente para clasificación sin fabricación de latidos — con expiración
+// Estado persistente para clasificación y PWA sin fabricación — con expiración
 let lastArrhythmiaDiagnosis: ReturnType<ArrhythmiaClassifier['processInterval']> | null = null;
 let lastArrhythmiaTimestampMs = 0;
 const ARRHYTHMIA_HOLDOVER_MS = 5000; // expira diagnóstico stale tras 5s sin nuevo RR
+let lastPwaMetrics: ReturnType<PulseWaveAnalysisEngine['analyzePulseCycle']> | null = null;
+let lastPwaTimestampMs = 0;
+const PWA_HOLDOVER_MS = 5000;
+let lastPeakTimestampMs = 0;
 
 self.onmessage = (event: MessageEvent) => {
   const { type, payload } = event.data;
@@ -51,6 +55,10 @@ self.onmessage = (event: MessageEvent) => {
     pwaEngine.reset();
     arrhythmiaClassifier.reset();
     lastArrhythmiaDiagnosis = null;
+    lastArrhythmiaTimestampMs = 0;
+    lastPwaMetrics = null;
+    lastPwaTimestampMs = 0;
+    lastPeakTimestampMs = 0;
     self.postMessage({ type: 'RESET_CONFIRMED' });
     return;
   }
@@ -101,6 +109,7 @@ self.onmessage = (event: MessageEvent) => {
     let currentRrMs: number | null = null;
 
     if (detectedPeak && isStableBlood) {
+      lastPeakTimestampMs = timestampMs;
       const rrMetrics = rrFilter.processPeak(detectedPeak);
       if (rrMetrics && rrMetrics.isPhysiologicallyValid) {
         instantaneousBpm = rrMetrics.instantaneousBpm;
@@ -116,16 +125,24 @@ self.onmessage = (event: MessageEvent) => {
         isArrhythmiaCandidate = rrMetrics.isArrhythmiaCandidate;
       }
     } else if (isStableBlood) {
-      smoothedBpm = rrFilter.getSmoothedBpm();
+      // Hold BPM solo 5s sin pico — luego 0 para no mostrar stale
+      if (lastPeakTimestampMs > 0 && (timestampMs - lastPeakTimestampMs) < PWA_HOLDOVER_MS) {
+        smoothedBpm = rrFilter.getSmoothedBpm();
+      } else {
+        smoothedBpm = 0;
+      }
     }
 
-    // 6. Pulse Wave Analysis (PWA) — solo con RR MEDIDO (currentRrMs), sin síntesis por BPM.
-    // Si no hay RR nuevo, PWA devuelve 0s (no avanza modelo) para no fabricar 120/80.
-    // crestTime es proxy 19% del ciclo con etiqueta explícita "proxy" — documentación clínica advierte que es estimación.
+    // 6. Pulse Wave Analysis (PWA) — solo con RR MEDIDO; hold del último válido para evitar flicker  —/— entre latidos
+    // crestTime proxy 19% documentado como estimación (no medida morfológica directa).
     let pwaMetrics: ReturnType<PulseWaveAnalysisEngine['analyzePulseCycle']> | { crestTimeMs: number; stiffnessIndexMs: number; augmentationIndexProxy: number; estimatedSystolicMmHg: number; estimatedDiastolicMmHg: number };
     if (isStableBlood && currentRrMs !== null && currentRrMs >= 273 && currentRrMs <= 2000) {
       const derivedCrestMs = Math.max(60, Math.min(250, Math.round(currentRrMs * 0.19)));
       pwaMetrics = pwaEngine.analyzePulseCycle(derivedCrestMs, currentRrMs, smoothedBpm);
+      lastPwaMetrics = pwaMetrics;
+      lastPwaTimestampMs = timestampMs;
+    } else if (isStableBlood && lastPwaMetrics && (timestampMs - lastPwaTimestampMs) < PWA_HOLDOVER_MS) {
+      pwaMetrics = lastPwaMetrics;
     } else {
       pwaMetrics = {
         crestTimeMs: 0,
@@ -134,6 +151,7 @@ self.onmessage = (event: MessageEvent) => {
         estimatedSystolicMmHg: 0,
         estimatedDiastolicMmHg: 0,
       };
+      if (!isStableBlood) lastPwaMetrics = null;
     }
 
     // 7. SpO2 Engine

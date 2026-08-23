@@ -371,7 +371,8 @@ export class TelemetryCanvasEngine {
       const c = document.createElement('canvas');
       c.width = Math.max(1, Math.floor(width * dpr));
       c.height = Math.max(1, Math.floor(height * dpr));
-      const g = c.getContext('2d')!;
+      const g = c.getContext('2d');
+      if (!g) return;
       g.scale(dpr, dpr);
       this.renderGridToContext(g, width, height, theme);
       this.gridCache = c;
@@ -380,8 +381,9 @@ export class TelemetryCanvasEngine {
       this.gridCacheDpr = dpr;
       this.gridCacheTheme = this.config.colorTheme;
     }
-    // blit cache
-    ctx.drawImage(this.gridCache!, 0, 0, width, height);
+    // blit cache — guard para OOM/canvas no soportado
+    if (!this.gridCache) return;
+    ctx.drawImage(this.gridCache, 0, 0, width, height);
   }
 
   private renderGridToContext(ctx: CanvasRenderingContext2D, width: number, height: number, theme: ThemeColors): void {

@@ -56,11 +56,11 @@ export class PulseWaveAnalysisEngine {
     }
 
     if (!this.hasValidSample) {
-      // Primer ciclo válido: inicialización directa sin EMA fantasma
+      // Primer ciclo válido: inicialización directa sin EMA fantasma — rango extendido 70-220 sistólica para no ocultar crisis
       this.lastCrestTimeMs = crestTimeMs;
       this.lastStiffnessMs = (crestTimeMs / totalCycleMs) * 1000;
-      this.estimatedSystolic = Math.max(90, Math.min(160, 118 + (currentBpm - 70) * 0.35 + (130 - crestTimeMs) * 0.25));
-      this.estimatedDiastolic = Math.max(60, Math.min(100, 78 + (currentBpm - 70) * 0.35 * 0.4 + (130 - crestTimeMs) * 0.25 * 0.15));
+      this.estimatedSystolic = Math.max(70, Math.min(220, 118 + (currentBpm - 70) * 0.35 + (130 - crestTimeMs) * 0.25));
+      this.estimatedDiastolic = Math.max(40, Math.min(130, 78 + (currentBpm - 70) * 0.35 * 0.4 + (130 - crestTimeMs) * 0.25 * 0.15));
       this.hasValidSample = true;
     } else {
       this.lastCrestTimeMs = this.lastCrestTimeMs * 0.85 + crestTimeMs * 0.15;
@@ -69,8 +69,8 @@ export class PulseWaveAnalysisEngine {
 
       const bpmDelta = (currentBpm - 70) * 0.35;
       const stiffnessDelta = (130 - this.lastCrestTimeMs) * 0.25;
-      const targetSystolic = Math.max(90, Math.min(160, 118 + bpmDelta + stiffnessDelta));
-      const targetDiastolic = Math.max(60, Math.min(100, 78 + bpmDelta * 0.4 + stiffnessDelta * 0.15));
+      const targetSystolic = Math.max(70, Math.min(220, 118 + bpmDelta + stiffnessDelta));
+      const targetDiastolic = Math.max(40, Math.min(130, 78 + bpmDelta * 0.4 + stiffnessDelta * 0.15));
       this.estimatedSystolic = this.estimatedSystolic * 0.92 + targetSystolic * 0.08;
       this.estimatedDiastolic = this.estimatedDiastolic * 0.92 + targetDiastolic * 0.08;
     }
