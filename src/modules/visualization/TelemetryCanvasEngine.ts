@@ -139,6 +139,10 @@ export class TelemetryCanvasEngine {
   private pulseFlash = 0; // 0..1 decae, para flash del head en sístole
   private frameCounter = 0;
 
+  // Cache de hora para no crear Date 60 veces por segundo
+  private cachedTimeStr = '--:--:--';
+  private lastTimeUpdateMs = 0;
+
   private readonly poincareBuffer: PoincarePoint[] = [];
   private readonly maxPoincarePoints = 48;
   private readonly tauLag = 6;
@@ -179,6 +183,14 @@ export class TelemetryCanvasEngine {
   public toggleDerivatives(): boolean {
     this.config.showDerivatives = !this.config.showDerivatives;
     return this.config.showDerivatives;
+  }
+
+  public getShowDerivatives(): boolean {
+    return this.config.showDerivatives;
+  }
+
+  public setShowDerivatives(show: boolean): void {
+    this.config.showDerivatives = show;
   }
 
   public getBpm(): number { return this.lastBpm; }
@@ -481,13 +493,15 @@ export class TelemetryCanvasEngine {
     ctx.textAlign = 'center';
     ctx.fillText(pillText, pillX + pillW / 2, pillY + 4.5);
 
-    // BPM pequeño arriba derecha debajo? Ponemos arriba al lado de pill si hay espacio
-    // Hora / sweep indicador
+    // Hora / sweep indicador — actualizada solo 1 vez por segundo para evitar GC a 60 FPS
+    if (performance.now() - this.lastTimeUpdateMs > 1000) {
+      this.cachedTimeStr = new Date().toLocaleTimeString('es-ES', { hour12: false });
+      this.lastTimeUpdateMs = performance.now();
+    }
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
     ctx.font = '500 6.5px "JetBrains Mono", monospace';
     ctx.textAlign = 'right';
-    const timeStr = new Date().toLocaleTimeString('es-ES', { hour12: false });
-    ctx.fillText(timeStr, width - padX, padY + 16);
+    ctx.fillText(this.cachedTimeStr, width - padX, padY + 16);
 
     // Separador horizontal sutil bajo top bar
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
@@ -912,13 +926,13 @@ export class TelemetryCanvasEngine {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Pulso fantasma de demostración (sinusoidal tenue) para mostrar cómo se verá
-    ctx.strokeStyle = 'rgba(255,255,255,0.055)';
-    ctx.lineWidth = 1.2;
+    // Pulso fantasma de demostración — ultra tenue (0.028) no confundible con señal real; indica "aquí irá tu pulso"
+    ctx.strokeStyle = 'rgba(255,255,255,0.028)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     for (let x = 0; x < width; x++) {
-      const t = (x / width) * 6; // 6 ciclos fantasma
-      const y = midY - Math.sin(t * Math.PI * 2 + this.frameCounter * 0.02) * 6 - Math.sin(t * Math.PI * 6) * 2;
+      const t = (x / width) * 6;
+      const y = midY - Math.sin(t * Math.PI * 2 + this.frameCounter * 0.02) * 4 - Math.sin(t * Math.PI * 6) * 1.2;
       if (x === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -1038,14 +1052,14 @@ export class TelemetryCanvasEngine {
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, width, height);
 
-    // Viñeta lateral extra para profundidad 3D
+    // Viñeta lateral sutil — reducida de 0.38/0.36 a 0.16/0.14 para no tapar señal periférica
     const sideGrad = ctx.createLinearGradient(0, 0, width * 0.22, 0);
-    sideGrad.addColorStop(0, 'rgba(0,0,0,0.38)');
+    sideGrad.addColorStop(0, 'rgba(0,0,0,0.16)');
     sideGrad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = sideGrad;
     ctx.fillRect(0, 0, width * 0.22, height);
     const sideGradR = ctx.createLinearGradient(width, 0, width * 0.78, 0);
-    sideGradR.addColorStop(0, 'rgba(0,0,0,0.36)');
+    sideGradR.addColorStop(0, 'rgba(0,0,0,0.14)');
     sideGradR.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = sideGradR;
     ctx.fillRect(width * 0.78, 0, width * 0.22, height);
@@ -1165,5 +1179,8 @@ export class TelemetryCanvasEngine {
     this.lastPi = 0;
     this.lastContact = 'NO_CONTACT';
     this.pulseFlash = 0;
+    this.cachedTimeStr = '--:--:--';
+    this.lastTimeUpdateMs = 0;
+    this.gridCache = null;
   }
 }

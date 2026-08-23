@@ -52,7 +52,7 @@ export class HrvEngine {
         pnn50Ratio: 0,
         sd1Ms: 0,
         sd2Ms: 0,
-        stressIndex: 1.0,
+        stressIndex: 0,
         sampleCount: n,
       };
     }
@@ -84,16 +84,17 @@ export class HrvEngine {
     const rawRmssd = Math.sqrt(diffSqSum / (n - 1));
     const pnn50Ratio = count50 / (n - 1);
 
-    // Acotar RMSSD a límites fisiológicos humanos normales (10 - 150 ms)
-    const rmssd = Math.min(150, Math.max(10, rawRmssd));
+    // RMSSD fisiológico — no clamp inferior artificial de 10ms que enmascara bradicardia vagal;
+    // clamp inferior 1ms para evitar artefacto, superior 250ms documentado
+    const rmssd = Math.min(250, Math.max(1, rawRmssd));
 
     // 3. Métricas de Poincaré
     const sd1 = rmssd / Math.SQRT2;
     const sd2Arg = 2 * sdnn * sdnn - 0.5 * rmssd * rmssd;
     const sd2 = Math.sqrt(Math.max(0, sd2Arg));
 
-    // Stress Index proxy (proporción simpático-vagal SD2 / SD1)
-    const stressIndex = sd1 > 1e-3 ? Math.min(10, sd2 / sd1) : 1.0;
+    // Stress Index proxy (proporción simpático-vagal SD2 / SD1) — sin dato -> 0, no 1.0 fantasma
+    const stressIndex = sd1 > 1e-3 ? Math.min(10, sd2 / sd1) : 0;
 
     return {
       rmssdMs: Math.round(rmssd * 10) / 10,

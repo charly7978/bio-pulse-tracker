@@ -1,5 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
+/* Fonts cargadas via <link> en index.html (Inter + JetBrains Mono) — evita doble fetch */
 :root {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
@@ -46,7 +45,7 @@ html, body, #root {
   touch-action: manipulation;
 }
 
-/* ─── Camera Background — atenuado para que el CRT sea protagonista ─── */
+/* ─── Camera Background — limpio, no aberrante ─── */
 .camera-bg {
   position: fixed;
   inset: 0;
@@ -54,25 +53,25 @@ html, body, #root {
   object-fit: cover;
   width: 100%;
   height: 100%;
-  filter: brightness(1.35) contrast(1.18) saturate(1.35) blur(0.5px);
+  filter: brightness(1.10) contrast(1.05) saturate(1.10);
   pointer-events: none;
-  transition: opacity 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
-  opacity: 0.55;
+  transition: opacity 0.45s ease;
+  opacity: 0.42;
 }
 
-/* Vignette overlay to frame the camera preview elegantly */
+/* Vignette overlay sutil — no tapa el CRT */
 .camera-vignette {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse at center, transparent 28%, rgba(0,0,0,0.38) 62%, rgba(0,0,0,0.88) 100%),
-    linear-gradient(180deg, rgba(0,0,0,0.28) 0%, transparent 22%, transparent 78%, rgba(0,0,0,0.55) 100%);
-  transition: opacity 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+    radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,0.32) 72%, rgba(0,0,0,0.78) 100%),
+    linear-gradient(180deg, rgba(0,0,0,0.18) 0%, transparent 18%, transparent 82%, rgba(0,0,0,0.42) 100%);
+  transition: opacity 0.45s ease;
 }
 
-/* ─── Monitor Overlay (Spatial Depth Layering) ─── */
+/* ─── Monitor Overlay (Flat, medical-grade) — safe-area manejado solo en status-bar/controls ─── */
 .monitor-overlay {
   position: fixed;
   inset: 0;
@@ -80,31 +79,36 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding-top: 0;
+  padding-bottom: 0;
+  gap: 0;
+  background: linear-gradient(180deg, rgba(2,4,8,0.92) 0%, rgba(2,4,8,0.72) 18%, rgba(0,0,0,0.0) 42%);
 }
 
-/* ─── Status Bar — barra instrumental negra UCI ─── */
+/* ─── Status Bar — barra instrumental plana UCI ─── */
 .status-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
-  background: rgba(4, 6, 10, 0.78);
-  backdrop-filter: blur(30px) saturate(1.8);
-  -webkit-backdrop-filter: blur(30px) saturate(1.8);
-  font-size: 0.65rem;
+  padding: 7px 14px;
+  padding-top: calc(7px + env(safe-area-inset-top, 0px));
+  background: rgba(8, 10, 16, 0.92);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  font-size: 0.64rem;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.58);
   letter-spacing: 0.03em;
   flex-shrink: 0;
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(0,0,0,0.35);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 32px;
 }
 
 /* ─── Session Progress ─── */
 .session-progress {
   width: 100%;
-  height: 2.5px;
-  background: rgba(255, 255, 255, 0.04);
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
 }
 
@@ -114,168 +118,192 @@ html, body, #root {
   transition: width 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-/* ─── Vitals HUD — tarjetas con profundidad física ─── */
+/* ─── Vitals HUD — GRID RESPONSIVO REAL ─── */
 .vitals-hud {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 7px;
-  padding: 9px 10px 7px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 10px 6px;
   flex-shrink: 0;
-  perspective: 900px;
 }
 
 .vital-card {
-  background: rgba(18, 20, 26, 0.74);
-  backdrop-filter: blur(40px) saturate(1.6);
-  -webkit-backdrop-filter: blur(40px) saturate(1.6);
-  border: 0.5px solid rgba(255, 255, 255, 0.075);
-  border-radius: 14px;
-  padding: 9px 10px 8px;
+  background: rgba(18, 20, 26, 0.82);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 8px 9px;
   text-align: center;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.06) inset,
-    0 8px 20px rgba(0,0,0,0.38),
-    0 2px 8px rgba(0,0,0,0.28),
-    inset 0 -8px 18px rgba(0,0,0,0.22);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+    0 1px 0 rgba(255,255,255,0.05) inset,
+    0 6px 18px rgba(0,0,0,0.36),
+    0 1px 6px rgba(0,0,0,0.28);
   position: relative;
   overflow: hidden;
-  transform: perspective(600px) rotateX(1.5deg);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
 .vital-card::before {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.045) 0%, transparent 46%);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 55%);
   pointer-events: none;
-}
-
-.vital-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  background: radial-gradient(90% 70% at 50% 0%, rgba(255,255,255,0.06), transparent 60%);
-  pointer-events: none;
-  opacity: 0.6;
 }
 
 .vital-card:active {
-  transform: perspective(600px) rotateX(1.5deg) scale(0.97);
+  transform: scale(0.98);
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.05) inset,
-    0 4px 14px rgba(0,0,0,0.38);
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 3px 12px rgba(0,0,0,0.32);
 }
 
-.vital-label {
-  font-size: 0.56rem;
+ .vital-label {
+  font-size: 0.64rem;
   font-weight: 700;
-  letter-spacing: 0.085em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  margin-bottom: 3px;
-  opacity: 0.88;
+  margin-bottom: 1px;
+  opacity: 0.92;
   position: relative;
   z-index: 1;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .vital-value {
-  font-size: 1.55rem;
+  font-size: clamp(1.15rem, 4.2vw, 1.55rem);
   font-weight: 800;
   font-family: var(--font-mono);
   color: #ffffff;
-  line-height: 1.12;
-  text-shadow: 0 0 18px rgba(255, 255, 255, 0.11), 0 1px 0 rgba(0,0,0,0.5);
+  line-height: 1;
   position: relative;
   z-index: 1;
   letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  min-height: 1.15em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .vital-unit {
-  font-size: 0.50rem;
-  color: rgba(255, 255, 255, 0.38);
+  font-size: 0.52rem;
+  color: rgba(255, 255, 255, 0.40);
   font-weight: 600;
-  letter-spacing: 0.045em;
-  margin-top: 1px;
+  letter-spacing: 0.04em;
   position: relative;
   z-index: 1;
+  line-height: 1;
 }
 
-/* ─── Rhythm Banner — banda UCI con borde neón sutil ─── */
+/* Responsive breakpoints — vitals */
+@media (max-width: 640px) {
+  .vitals-hud {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    padding: 8px 8px 6px;
+  }
+  .vital-card {
+    padding: 9px 6px 8px;
+    border-radius: 11px;
+  }
+  .vital-value {
+    font-size: 1.32rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .vitals-hud {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 6px 6px 4px;
+  }
+  .vital-value { font-size: 1.18rem; }
+  .vital-label { font-size: 0.54rem; }
+}
+
+@media (min-width: 900px) {
+  .vitals-hud { gap: 10px; padding: 10px 12px 8px; max-width: 900px; width: 100%; margin: 0 auto; }
+  .vital-card { padding: 12px 10px 10px; }
+  .vital-value { font-size: 1.65rem; }
+}
+
+/* ─── Rhythm Banner — banda UCI plana ─── */
 .rhythm-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin: 0 10px;
-  padding: 7px 13px;
-  background: rgba(14, 18, 24, 0.78);
-  backdrop-filter: blur(30px) saturate(1.5);
-  -webkit-backdrop-filter: blur(30px) saturate(1.5);
-  border: 0.5px solid rgba(255, 255, 255, 0.07);
-  border-left: 2px solid var(--accent-ok);
+  padding: 7px 12px;
+  background: rgba(14, 18, 24, 0.86);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 2.5px solid var(--accent-ok);
   border-radius: 10px;
   font-size: 0.70rem;
   flex-shrink: 0;
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.05) inset,
-    0 6px 16px rgba(0,0,0,0.32);
-  margin-bottom: 5px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.28);
+  margin-bottom: 6px;
+  min-height: 32px;
+  flex-wrap: wrap;
 }
 
-/* ─── Waveform Container — CRT MÉDICO 3D con perspectiva real ─── */
+@media (min-width: 900px) {
+  .rhythm-banner { max-width: 900px; width: calc(100% - 24px); margin: 0 auto 6px; }
+}
+
+/* ─── Waveform Container — CRT MÉDICO PLANO (sin perspectiva 3D aberrante) ─── */
 .waveform-container {
-  flex: 1;
+  flex: 1 1 auto;
   position: relative;
-  min-height: 0;
+  min-height: 180px;
+  /* en pantallas muy bajas, permitir scroll interno pero no colapsar */
+  height: 0;
   overflow: hidden;
-  margin: 3px 10px 2px;
-  border-radius: 18px;
-  background: #020408;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  /* Bisel físico + sombra volumétrica profunda */
+  margin: 2px 10px 4px;
+  border-radius: 14px;
+  background: #04070C;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.045),
-    0 1px 0 rgba(255, 255, 255, 0.07) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.92) inset,
-    inset 0 14px 28px rgba(255, 255, 255, 0.035),
-    inset 0 -18px 36px rgba(0, 0, 0, 0.55),
-    inset 0 0 90px rgba(0, 0, 0, 0.72),
-    0 22px 54px rgba(0, 0, 0, 0.78),
-    0 8px 22px rgba(0, 0, 0, 0.52),
-    0 1px 3px rgba(0, 0, 0, 0.9);
-  /* PERSPECTIVA 3D REAL — tilt sutil que vende profundidad sin deformar tiempo */
-  transform: perspective(1080px) rotateX(7deg) rotateY(-3.6deg) translateZ(0);
-  transform-origin: 52% 44%;
-  transform-style: preserve-3d;
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    inset 0 -1px 0 rgba(0,0,0,0.9),
+    0 10px 30px rgba(0,0,0,0.55),
+    0 2px 10px rgba(0,0,0,0.40);
   isolation: isolate;
+  /* eliminar completamente la distorsión 3D: flat */
+  transform: none;
 }
 
-/* Highlight especular superior — vidrio curvo CRT */
 .waveform-container::before {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 18px;
+  border-radius: 14px;
   background:
-    radial-gradient(118% 78% at 28% 6%, rgba(255, 255, 255, 0.075) 0%, transparent 44%),
-    radial-gradient(92% 66% at 84% 18%, rgba(255, 255, 255, 0.032) 0%, transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.052) 0%, rgba(255,255,255,0.015) 14%, transparent 26%, transparent 84%, rgba(0,0,0,0.38) 100%);
+    radial-gradient(110% 70% at 28% 8%, rgba(255, 255, 255, 0.045) 0%, transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 22%, transparent 90%, rgba(0,0,0,0.28) 100%);
   pointer-events: none;
   z-index: 4;
-  mix-blend-mode: screen;
 }
 
-/* Vignette profunda + borde interno iluminado */
+/* Vignette interna muy sutil — no tapa la señal */
 .waveform-container::after {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 18px;
-  background: radial-gradient(116% 116% at 50% 50%, transparent 57%, rgba(0, 0, 0, 0.40) 81%, rgba(0, 0, 0, 0.74) 100%);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.065),
-    inset 0 0 60px rgba(0, 0, 0, 0.45);
+  border-radius: 14px;
+  background: radial-gradient(120% 120% at 50% 50%, transparent 68%, rgba(0,0,0,0.28) 88%, rgba(0,0,0,0.55) 100%);
   pointer-events: none;
   z-index: 5;
 }
@@ -284,24 +312,50 @@ html, body, #root {
   width: 100%;
   height: 100%;
   display: block;
-  border-radius: 18px;
+  border-radius: 14px;
   position: relative;
   z-index: 1;
 }
 
-/* Capa de scanlines/phosphor mask por encima del canvas pero debajo del glass */
+/* Capa de scanlines — sutil, no lava la señal */
 .waveform-container .crt-scanlines {
   position: absolute;
   inset: 0;
-  border-radius: 18px;
+  border-radius: 14px;
   pointer-events: none;
   z-index: 3;
-  opacity: 0.105;
-  background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(180, 255, 210, 0.09) 2px 3px);
-  mix-blend-mode: screen;
+  opacity: 0.045;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,255,255,0.18) 2px 3px);
 }
 
-/* ─── No-contact Guide Overlay — por encima del glass ─── */
+@media (max-width: 640px) {
+  .waveform-container {
+    margin: 2px 8px 4px;
+    border-radius: 12px;
+    min-height: 34vh;
+  }
+  .waveform-container::before,
+  .waveform-container::after,
+  .waveform-canvas { border-radius: 12px; }
+  .waveform-container .crt-scanlines { border-radius: 12px; opacity: 0.035; }
+}
+
+@media (min-width: 900px) {
+  .waveform-container { max-width: 900px; width: calc(100% - 24px); margin: 4px auto 6px; min-height: 360px; }
+}
+
+@media (min-height: 800px) {
+  .waveform-container { min-height: 380px; }
+}
+
+@media (max-height: 640px) {
+  .waveform-container { min-height: 150px; }
+  .vitals-hud { padding: 6px 8px 4px; gap: 6px; }
+  .status-bar { padding: 6px 12px; font-size: 0.60rem; }
+  .controls-bar { padding: 8px 10px; margin: 4px 8px 6px; }
+}
+
+/* ─── No-contact Guide Overlay ─── */
 .no-contact-guide {
   position: absolute;
   inset: 0;
@@ -309,169 +363,196 @@ html, body, #root {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 12px;
   z-index: 6;
   pointer-events: none;
+  padding: 16px;
+  text-align: center;
 }
 
 .guide-icon-ring {
-  width: 72px;
-  height: 72px;
+  width: 66px;
+  height: 66px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 55, 95, 0.25);
+  border: 1.5px solid rgba(255, 55, 95, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 55, 95, 0.06);
-  animation: guide-pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  background: rgba(255, 55, 95, 0.05);
+  animation: guide-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 @keyframes guide-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.8; border-color: rgba(255, 55, 95, 0.25); }
-  50% { transform: scale(1.06); opacity: 1; border-color: rgba(255, 55, 95, 0.45); }
+  0%, 100% { transform: scale(1); opacity: 0.85; border-color: rgba(255, 55, 95, 0.22); }
+  50% { transform: scale(1.04); opacity: 1; border-color: rgba(255, 55, 95, 0.38); }
 }
 
-/* ─── Controls Bar (Bottom, Spatial Float) ─── */
+/* ─── Controls Bar (Bottom, flat pill) ─── */
 .controls-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
-  margin: 8px 10px 10px;
-  background: var(--spatial-glass-elevated);
-  backdrop-filter: blur(40px) saturate(1.7);
-  -webkit-backdrop-filter: blur(40px) saturate(1.7);
-  border: 0.5px solid var(--spatial-border-light);
-  border-radius: 18px;
-  flex-shrink: 0;
-  box-shadow: var(--spatial-shadow-elevated);
   gap: 8px;
+  padding: 9px 11px;
+  margin: 6px 10px 10px;
+  margin-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(22, 24, 30, 0.88);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.42), 0 1px 0 rgba(255,255,255,0.05) inset;
+  flex-wrap: wrap;
+}
+
+.controls-bar > div:first-child {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .controls-bar {
+    margin: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 9px;
+    border-radius: 14px;
+    gap: 6px;
+  }
+  .controls-bar > div:first-child { gap: 5px; }
+}
+
+@media (min-width: 900px) {
+  .controls-bar { max-width: 900px; width: calc(100% - 24px); margin: 8px auto calc(12px + env(safe-area-inset-bottom, 0px)); }
 }
 
 .btn-monitor {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
-  padding: 12px 24px;
-  border-radius: 14px;
+  padding: 11px 18px;
+  border-radius: 12px;
   border: none;
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.80rem;
   font-weight: 700;
   font-family: var(--font-sans);
   letter-spacing: 0.02em;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
   position: relative;
   overflow: hidden;
+  white-space: nowrap;
+  min-height: 40px;
 }
 
 .btn-monitor::before {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 50%);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%);
   pointer-events: none;
 }
 
-.btn-monitor:active {
-  transform: scale(0.95);
-}
+.btn-monitor:active { transform: scale(0.97); }
+.btn-monitor:focus-visible { outline: 2px solid rgba(255,255,255,0.5); outline-offset: 2px; }
 
 .btn-secondary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding: 9px 14px;
-  border-radius: 12px;
-  border: 0.5px solid var(--spatial-border-light);
-  background: var(--spatial-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  color: rgba(255, 255, 255, 0.75);
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(38, 38, 42, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: rgba(255, 255, 255, 0.78);
   cursor: pointer;
-  font-size: 0.72rem;
+  font-size: 0.70rem;
   font-weight: 600;
   font-family: var(--font-sans);
-  transition: transform 0.15s ease, background 0.15s ease;
-  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.22);
+  white-space: nowrap;
+  min-height: 44px;
+  min-width: 44px;
 }
 
-.btn-secondary:active {
-  transform: scale(0.95);
-  background: var(--spatial-glass-hover);
-}
+.btn-secondary:active { transform: scale(0.97); background: rgba(48,48,54,0.78); }
+.btn-secondary:focus-visible { outline: 2px solid rgba(255,255,255,0.35); outline-offset: 2px; }
 
 /* ─── Pulse Animation ─── */
 @keyframes heartbeat {
   0%, 100% { transform: scale(1); }
-  15% { transform: scale(1.2); }
+  15% { transform: scale(1.18); }
   30% { transform: scale(1); }
-  45% { transform: scale(1.12); }
+  45% { transform: scale(1.10); }
   60% { transform: scale(1); }
 }
 
-.animate-pulse {
-  animation: heartbeat 1s ease-in-out infinite;
-}
+.animate-pulse { animation: heartbeat 1s ease-in-out infinite; }
 
 /* ─── Contact Indicator Dot ─── */
 .contact-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   display: inline-block;
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
+  flex-shrink: 0;
 }
 
 .contact-dot--stable {
   background: var(--accent-ok);
-  box-shadow: 0 0 8px var(--accent-ok), 0 0 16px rgba(48, 209, 88, 0.25);
+  box-shadow: 0 0 8px var(--accent-ok), 0 0 14px rgba(48, 209, 88, 0.22);
 }
 
 .contact-dot--unstable {
   background: var(--accent-warn);
   box-shadow: 0 0 6px var(--accent-warn);
-  animation: guide-pulse 1.5s infinite;
+  animation: guide-pulse 1.4s infinite;
 }
 
-.contact-dot--none {
-  background: rgba(255, 255, 255, 0.20);
-}
+.contact-dot--none { background: rgba(255, 255, 255, 0.20); }
 
 /* ─── Report Modal (Spatial Sheet) ─── */
 .report-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.70);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   display: flex;
   align-items: flex-end;
   justify-content: center;
   padding: 0;
-  animation: sheet-bg-in 0.3s ease-out;
+  animation: sheet-bg-in 0.25s ease-out;
 }
 
 @keyframes sheet-bg-in {
   from { background: rgba(0, 0, 0, 0); }
-  to { background: rgba(0, 0, 0, 0.70); }
+  to { background: rgba(0, 0, 0, 0.68); }
 }
 
 .report-card {
   width: 100%;
   max-width: 540px;
-  max-height: 85vh;
+  max-height: 86vh;
   overflow-y: auto;
-  background: var(--spatial-glass-elevated);
-  backdrop-filter: blur(50px) saturate(1.8);
-  -webkit-backdrop-filter: blur(50px) saturate(1.8);
-  border: 0.5px solid var(--spatial-border-light);
-  border-radius: 20px 20px 0 0;
-  padding: 24px 20px 32px;
-  box-shadow: 0 -10px 60px rgba(0, 0, 0, 0.50);
-  animation: sheet-slide-up 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
+  background: rgba(18, 20, 26, 0.96);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px 18px 0 0;
+  padding: 18px 16px 24px;
+  box-shadow: 0 -10px 50px rgba(0, 0, 0, 0.55);
+  animation: sheet-slide-up 0.32s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 @keyframes sheet-slide-up {
@@ -482,24 +563,31 @@ html, body, #root {
 .report-card .sheet-handle {
   width: 36px;
   height: 4px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 9999px;
-  margin: 0 auto 16px;
+  margin: 0 auto 14px;
 }
 
 /* ─── Error Banner ─── */
 .error-banner {
-  padding: 6px 14px;
+  padding: 7px 12px;
   background: rgba(255, 55, 95, 0.10);
-  border-top: 0.5px solid rgba(255, 55, 95, 0.20);
+  border-top: 1px solid rgba(255, 55, 95, 0.16);
   color: var(--accent-heart);
   font-size: 0.70rem;
   font-weight: 500;
   text-align: center;
   flex-shrink: 0;
+  line-height: 1.35;
 }
 
 /* ─── Scrollbar (minimal) ─── */
-::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 9999px; }
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .guide-icon-ring, .animate-pulse, .contact-dot--unstable { animation: none; }
+  .session-progress-fill { transition: none; }
+}

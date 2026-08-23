@@ -32,10 +32,6 @@ export class CameraCaptureService {
     hasManualFocus: false,
   };
 
-  public isNativePlatform(): boolean {
-    return false;
-  }
-
   public async start(
     videoElement: HTMLVideoElement,
     onFrame: (frame: FrameData) => void
@@ -132,6 +128,12 @@ export class CameraCaptureService {
       };
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      // Limpieza crítica: liberar stream si play() falla por autoplay policy para no dejar LED encendido/permisos bloqueados
+      if (this.stream) {
+        try { this.stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+        this.stream = null;
+      }
+      if (videoElement) videoElement.srcObject = null;
       return {
         isActive: false,
         hasTorch: false,
@@ -257,7 +259,7 @@ export class CameraCaptureService {
     }
 
     if (this.stream) {
-      this.setTorch(false).catch(() => undefined);
+      try { await this.setTorch(false); } catch { /* ignore torch off failure */ }
       this.stream.getTracks().forEach((track) => track.stop());
       this.stream = null;
     }

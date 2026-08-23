@@ -4,6 +4,13 @@
  * Hook de orquestación en tiempo real que integra la captura de cámara óptica con bloqueo 3A,
  * el Web Worker de procesamiento DSP, el motor de renderizado Canvas a 60 FPS,
  * el clasificador de arritmias y el generador de reportes clínicos de sesión.
+ *
+ * Correcciones aplicadas en auditoría adversarial:
+ * - Eliminados valores hardcodeados de SpO₂/PWA/HRV en el reporte — ahora usan métricas reales del Worker.
+ * - Eliminado fallback que enmascaraba ausencia de señal como 98/120/80.
+ * - Tipado browser-safe para temporizador (number, no NodeJS.Timeout).
+ * - Historial BPM acotado (max 600) para evitar fuga de memoria.
+ * - Telemetría ampliada para transportar métricas completas (rRatio, pNN50 ratio real, etc).
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -11,6 +18,14 @@ import { CameraCaptureService, CameraState, FrameData } from '../modules/camera'
 import { TelemetryCanvasEngine, TelemetryFrame } from '../modules/visualization';
 import { ArrhythmiaDiagnosis } from '../modules/arrhythmia';
 import { MeasurementSessionReport } from '../modules/clinical-report';
+
+type ContactState = 'NO_CONTACT' | 'UNSTABLE_CONTACT' | 'STABLE_CONTACT';
+
+interface LastMetricsRef {
+  spo2: { spo2Percent: number; rRatio: number; acRed: number; dcRed: number; acGreen: number; dcGreen: number; confidence: number } | null;
+  hrv: { rmssdMs: number; sdnnMs: number; pnn50Ratio: number; sd1Ms: number; sd2Ms: number; stressIndex: number; sampleCount: number } | null;
+  pwa: { crestTimeMs: number; augmentationIndexProxy: number; stiffnessIndexMs: number; estimatedSystolicMmHg: number; estimatedDiastolicMmHg: number } | null;
+}
 
 export function useCameraPulseMonitor() {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -50,16 +65,16 @@ export function useCameraPulseMonitor() {
 
   const [clinicalVitals, setClinicalVitals] = useState({
     bpm: 0,
-    spo2: 98,
+    spo2: 0,
     rmssd: 0,
     sdnn: 0,
     pnn50: 0,
-    stressIndex: 1.0,
+    stressIndex: 0,
     isArrhythmia: false,
-    contactState: 'NO_CONTACT' as 'NO_CONTACT' | 'UNSTABLE_CONTACT' | 'STABLE_CONTACT',
-    estimatedSystolic: 120,
-    estimatedDiastolic: 80,
-    crestTimeMs: 120,
+    contactState: 'NO_CONTACT' as ContactState,
+    estimatedSystolic: 0,
+    estimatedDiastolic: 0,
+    crestTimeMs: 0,
     arrhythmia: {
       primaryRhythm: 'NORMAL_SINUS',
       confidence: 0,
@@ -74,10 +89,11 @@ export function useCameraPulseMonitor() {
   const cameraServiceRef = useRef<CameraCaptureService | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const canvasEngineRef = useRef<TelemetryCanvasEngine | null>(null);
-  const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionTimerRef = useRef<number | null>(null);
   const bpmHistoryRef = useRef<number[]>([]);
+  const lastMetricsRef = useRef<LastMetricsRef>({ spo2: null, hrv: null, pwa: null });
 
-  // Inicializar Web Worker
+  // Inicializar Web Worker — una sola vez
   useEffect(() => {
     const worker = new Worker(
       new URL('../workers/pulseSignal.worker.ts', import.meta.url),
@@ -98,7 +114,7 @@ export function useCameraPulseMonitor() {
           sqi: payload.sqi,
           pi: payload.pi,
           bpm: payload.bpm,
-          confidence: payload.hemoglobinVerdict?.confidence || 0,
+          confidence: payload.sqi ?? payload.livenessVerdict?.confidence ?? 0,
           contactState: payload.contactState,
         };
 
@@ -108,30 +124,68 @@ export function useCameraPulseMonitor() {
 
         setCurrentTelemetry(frame);
 
-        if (payload.bpm > 30) {
+        // Historial acotado — máx 600 muestras (~30 s a 20 Hz picos falsos, en práctica ~600 latidos = 10 min)
+        if (payload.bpm > 30 && payload.bpm < 220) {
           bpmHistoryRef.current.push(payload.bpm);
+          if (bpmHistoryRef.current.length > 600) bpmHistoryRef.current.shift();
         }
 
+        // Persistir métricas reales para reporte clínico
+        if (payload.spo2Metrics) {
+          lastMetricsRef.current.spo2 = {
+            spo2Percent: payload.spo2Metrics.spo2Percent ?? payload.spo2Metrics.spo2 ?? 0,
+            rRatio: payload.spo2Metrics.rRatio ?? payload.spo2Metrics.rValue ?? 0,
+            acRed: payload.spo2Metrics.acRed ?? 0,
+            dcRed: payload.spo2Metrics.dcRed ?? 0,
+            acGreen: payload.spo2Metrics.acGreen ?? 0,
+            dcGreen: payload.spo2Metrics.dcGreen ?? 0,
+            confidence: payload.spo2Metrics.confidence ?? 0,
+          };
+        }
+        if (payload.hrvMetrics) {
+          // Worker puede enviar pnn50Percent (0-100) o pnn50Ratio (0-1); normalizar a ratio
+          const pnn50RatioRaw = payload.hrvMetrics.pnn50Ratio ?? (payload.hrvMetrics.pnn50Percent != null ? payload.hrvMetrics.pnn50Percent / 100 : 0);
+          lastMetricsRef.current.hrv = {
+            rmssdMs: payload.hrvMetrics.rmssdMs ?? 0,
+            sdnnMs: payload.hrvMetrics.sdnnMs ?? 0,
+            pnn50Ratio: pnn50RatioRaw,
+            sd1Ms: payload.hrvMetrics.sd1Ms ?? (payload.hrvMetrics.rmssdMs ? Math.round(payload.hrvMetrics.rmssdMs / Math.SQRT2 * 10) / 10 : 0),
+            sd2Ms: payload.hrvMetrics.sd2Ms ?? (payload.hrvMetrics.sdnnMs ? Math.round(Math.sqrt(Math.max(0, 2 * payload.hrvMetrics.sdnnMs * payload.hrvMetrics.sdnnMs - 0.5 * (payload.hrvMetrics.rmssdMs ?? 0) * (payload.hrvMetrics.rmssdMs ?? 0)))*10)/10 : 0),
+            stressIndex: payload.hrvMetrics.stressIndex ?? 0,
+            sampleCount: payload.hrvMetrics.sampleCount ?? 0,
+          };
+        }
+        if (payload.pwaMetrics) {
+          lastMetricsRef.current.pwa = {
+            crestTimeMs: payload.pwaMetrics.crestTimeMs ?? 0,
+            augmentationIndexProxy: payload.pwaMetrics.augmentationIndexProxy ?? 0,
+            stiffnessIndexMs: payload.pwaMetrics.stiffnessIndexMs ?? payload.pwaMetrics.stiffnessIndex ?? 0,
+            estimatedSystolicMmHg: payload.pwaMetrics.estimatedSystolicMmHg ?? 0,
+            estimatedDiastolicMmHg: payload.pwaMetrics.estimatedDiastolicMmHg ?? 0,
+          };
+        }
+
+        const isStable = payload.contactState === 'STABLE_CONTACT';
         setClinicalVitals({
-          bpm: payload.bpm,
-          spo2: payload.spo2Metrics?.spo2Percent || 98,
-          rmssd: payload.hrvMetrics?.rmssdMs || 0,
-          sdnn: payload.hrvMetrics?.sdnnMs || 0,
-          pnn50: Math.round((payload.hrvMetrics?.pnn50Ratio || 0) * 100),
-          stressIndex: payload.hrvMetrics?.stressIndex || 1.0,
+          bpm: isStable ? payload.bpm : 0,
+          spo2: isStable ? (payload.spo2Metrics?.spo2Percent ?? payload.spo2Metrics?.spo2 ?? 0) : 0,
+          rmssd: isStable ? (payload.hrvMetrics?.rmssdMs ?? 0) : 0,
+          sdnn: isStable ? (payload.hrvMetrics?.sdnnMs ?? 0) : 0,
+          pnn50: isStable ? Math.round(((payload.hrvMetrics?.pnn50Ratio ?? (payload.hrvMetrics?.pnn50Percent != null ? payload.hrvMetrics.pnn50Percent / 100 : 0)) * 100)) : 0,
+          stressIndex: isStable ? (payload.hrvMetrics?.stressIndex ?? 0) : 0,
           isArrhythmia: payload.isArrhythmiaCandidate || false,
           contactState: payload.contactState,
-          estimatedSystolic: payload.pwaMetrics?.estimatedSystolicMmHg || 120,
-          estimatedDiastolic: payload.pwaMetrics?.estimatedDiastolicMmHg || 80,
-          crestTimeMs: payload.pwaMetrics?.crestTimeMs || 120,
-          arrhythmia: payload.arrhythmiaDiagnosis || {
+          estimatedSystolic: isStable ? (payload.pwaMetrics?.estimatedSystolicMmHg ?? 0) : 0,
+          estimatedDiastolic: isStable ? (payload.pwaMetrics?.estimatedDiastolicMmHg ?? 0) : 0,
+          crestTimeMs: isStable ? (payload.pwaMetrics?.crestTimeMs ?? 0) : 0,
+          arrhythmia: payload.arrhythmiaDiagnosis ?? {
             primaryRhythm: 'NORMAL_SINUS',
-            confidence: 0.8,
+            confidence: 0,
             sampleEntropy: 0,
             pvcCount: 0,
             pacCount: 0,
             events: [],
-            clinicalSummary: 'Ritmo sinusal normal.',
+            clinicalSummary: payload.livenessVerdict?.userGuidance ?? 'En espera de señal capilar...',
           },
         });
       }
@@ -141,6 +195,7 @@ export function useCameraPulseMonitor() {
 
     return () => {
       worker.terminate();
+      workerRef.current = null;
     };
   }, []);
 
@@ -150,7 +205,7 @@ export function useCameraPulseMonitor() {
 
   const stopMonitoring = useCallback(() => {
     if (cameraServiceRef.current) {
-      cameraServiceRef.current.stop();
+      void cameraServiceRef.current.stop();
     }
     if (workerRef.current) {
       workerRef.current.postMessage({ type: 'RESET' });
@@ -158,11 +213,10 @@ export function useCameraPulseMonitor() {
     if (canvasEngineRef.current) {
       canvasEngineRef.current.reset();
     }
-    if (sessionTimerRef.current) {
-      clearInterval(sessionTimerRef.current);
+    if (sessionTimerRef.current !== null) {
+      window.clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
-
     setIsMonitoring(false);
     setCameraState((prev) => ({ ...prev, isActive: false, isTorchOn: false }));
   }, []);
@@ -185,9 +239,11 @@ export function useCameraPulseMonitor() {
     setSessionDurationSec(0);
     setIsSessionComplete(false);
     bpmHistoryRef.current = [];
+    lastMetricsRef.current = { spo2: null, hrv: null, pwa: null };
 
     const state = await cameraServiceRef.current.start(videoElement, (frame: FrameData) => {
       if (workerRef.current) {
+        // Transferir buffer si es posible; clonar si no
         workerRef.current.postMessage({
           type: 'PROCESS_FRAME',
           payload: {
@@ -204,56 +260,79 @@ export function useCameraPulseMonitor() {
     if (!state.error) {
       setIsMonitoring(true);
 
-      // Temporizador de sesión de 30 segundos
       const startTime = Date.now();
-      sessionTimerRef.current = setInterval(() => {
+      if (sessionTimerRef.current !== null) window.clearInterval(sessionTimerRef.current);
+      sessionTimerRef.current = window.setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         setSessionDurationSec(elapsed);
-
-        if (elapsed >= 30) {
-          setIsSessionComplete(true);
-        }
+        if (elapsed >= 30) setIsSessionComplete(true);
       }, 1000);
     }
   }, [isMonitoring]);
 
   const generateReport = useCallback((): MeasurementSessionReport => {
     const bpms = bpmHistoryRef.current;
-    const avgBpm = bpms.length > 0 ? Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length) : clinicalVitals.bpm;
-    const minBpm = bpms.length > 0 ? Math.min(...bpms) : clinicalVitals.bpm;
-    const maxBpm = bpms.length > 0 ? Math.max(...bpms) : clinicalVitals.bpm;
+    const avgBpm = bpms.length > 0 ? Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length) : (clinicalVitals.bpm || 0);
+    const minBpm = bpms.length > 0 ? Math.min(...bpms) : (clinicalVitals.bpm || 0);
+    const maxBpm = bpms.length > 0 ? Math.max(...bpms) : (clinicalVitals.bpm || 0);
+
+    const spo2Real = lastMetricsRef.current.spo2;
+    const hrvReal = lastMetricsRef.current.hrv;
+    const pwaReal = lastMetricsRef.current.pwa;
 
     const report: MeasurementSessionReport = {
       sessionId: `SESSION-${Date.now()}`,
       timestampIso: new Date().toISOString(),
       durationSeconds: Math.max(1, sessionDurationSec),
-      averageBpm: avgBpm || 72,
-      minBpm: minBpm || 68,
-      maxBpm: maxBpm || 76,
-      spo2: {
-        spo2Percent: clinicalVitals.spo2,
-        rRatio: 0.46,
-        acRed: 2.0,
-        dcRed: 180,
-        acGreen: 3.5,
-        dcGreen: 50,
+      averageBpm: avgBpm,
+      minBpm: minBpm,
+      maxBpm: maxBpm,
+      spo2: spo2Real ? {
+        spo2Percent: spo2Real.spo2Percent,
+        rRatio: spo2Real.rRatio,
+        acRed: spo2Real.acRed,
+        dcRed: spo2Real.dcRed,
+        acGreen: spo2Real.acGreen,
+        dcGreen: spo2Real.dcGreen,
+        confidence: spo2Real.confidence,
+      } : {
+        spo2Percent: clinicalVitals.spo2 || 0,
+        rRatio: 0,
+        acRed: 0,
+        dcRed: 0,
+        acGreen: 0,
+        dcGreen: 0,
         confidence: currentTelemetry.confidence,
       },
-      hrv: {
+      hrv: hrvReal ? {
+        rmssdMs: hrvReal.rmssdMs,
+        sdnnMs: hrvReal.sdnnMs,
+        pnn50Ratio: hrvReal.pnn50Ratio,
+        sd1Ms: hrvReal.sd1Ms,
+        sd2Ms: hrvReal.sd2Ms,
+        stressIndex: hrvReal.stressIndex,
+        sampleCount: hrvReal.sampleCount,
+      } : {
         rmssdMs: clinicalVitals.rmssd,
         sdnnMs: clinicalVitals.sdnn,
         pnn50Ratio: clinicalVitals.pnn50 / 100,
-        sd1Ms: Math.round(clinicalVitals.rmssd / Math.SQRT2),
-        sd2Ms: Math.round(clinicalVitals.sdnn * 1.4),
+        sd1Ms: clinicalVitals.rmssd ? Math.round(clinicalVitals.rmssd / Math.SQRT2 * 10) / 10 : 0,
+        sd2Ms: clinicalVitals.sdnn ? Math.round(Math.sqrt(Math.max(0, 2 * clinicalVitals.sdnn * clinicalVitals.sdnn - 0.5 * clinicalVitals.rmssd * clinicalVitals.rmssd)) * 10) / 10 : 0,
         stressIndex: clinicalVitals.stressIndex,
         sampleCount: bpms.length,
       },
-      pwa: {
-        crestTimeMs: clinicalVitals.crestTimeMs,
-        augmentationIndexProxy: 0.35,
-        stiffnessIndexMs: 145,
-        estimatedSystolicMmHg: clinicalVitals.estimatedSystolic,
-        estimatedDiastolicMmHg: clinicalVitals.estimatedDiastolic,
+      pwa: pwaReal ? {
+        crestTimeMs: pwaReal.crestTimeMs,
+        augmentationIndexProxy: pwaReal.augmentationIndexProxy,
+        stiffnessIndexMs: pwaReal.stiffnessIndexMs,
+        estimatedSystolicMmHg: pwaReal.estimatedSystolicMmHg,
+        estimatedDiastolicMmHg: pwaReal.estimatedDiastolicMmHg,
+      } : {
+        crestTimeMs: clinicalVitals.crestTimeMs || 0,
+        augmentationIndexProxy: 0,
+        stiffnessIndexMs: 0,
+        estimatedSystolicMmHg: clinicalVitals.estimatedSystolic || 0,
+        estimatedDiastolicMmHg: clinicalVitals.estimatedDiastolic || 0,
       },
       arrhythmia: clinicalVitals.arrhythmia,
       signalQualityIndex: currentTelemetry.sqi,

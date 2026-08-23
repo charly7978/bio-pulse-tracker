@@ -15,7 +15,8 @@ export class Spo2Engine {
   private readonly redBuffer: number[] = [];
   private readonly greenBuffer: number[] = [];
   private readonly windowSize: number;
-  private smoothedSpo2 = 98.0;
+  private smoothedSpo2 = 0; // 0 = sin dato válido aún; se inicializa al primer cálculo fisiológico
+  private hasValidEstimate = false;
 
   constructor(windowSize: number = 60) {
     this.windowSize = windowSize; // 2 segundos a 30 Hz
@@ -41,8 +42,8 @@ export class Spo2Engine {
     const n = this.redBuffer.length;
     if (n < 30) {
       return {
-        spo2Percent: 98.0,
-        rRatio: 0.5,
+        spo2Percent: 0,
+        rRatio: 0,
         acRed: 0,
         dcRed: 0,
         acGreen: 0,
@@ -89,9 +90,14 @@ export class Spo2Engine {
     // 4. Curva de calibración fisiológica: SpO2 = 110 - 25 * R
     const rawSpo2 = Math.max(75.0, Math.min(100.0, 110.0 - 25.0 * rRatio));
 
-    // 5. Suavizado dependiente de la calidad SQI
-    const alpha = Math.max(0.02, Math.min(0.20, 0.10 * sqi));
-    this.smoothedSpo2 = this.smoothedSpo2 * (1 - alpha) + rawSpo2 * alpha;
+    // 5. Suavizado dependiente de la calidad SQI — primer valor sin EMA fantasma
+    if (!this.hasValidEstimate) {
+      this.smoothedSpo2 = rawSpo2;
+      this.hasValidEstimate = true;
+    } else {
+      const alpha = Math.max(0.02, Math.min(0.20, 0.10 * sqi));
+      this.smoothedSpo2 = this.smoothedSpo2 * (1 - alpha) + rawSpo2 * alpha;
+    }
 
     return {
       spo2Percent: Math.round(this.smoothedSpo2 * 10) / 10,
@@ -107,6 +113,7 @@ export class Spo2Engine {
   public reset(): void {
     this.redBuffer.length = 0;
     this.greenBuffer.length = 0;
-    this.smoothedSpo2 = 98.0;
+    this.smoothedSpo2 = 0;
+    this.hasValidEstimate = false;
   }
 }
