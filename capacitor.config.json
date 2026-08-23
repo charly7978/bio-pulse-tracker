@@ -1,0 +1,13 @@
+{
+  "appId": "com.biopulse.tracker",
+  "appName": "BioPulse Tracker",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
+  }
+}
