@@ -1,18 +1,27 @@
 /**
- * CameraCaptureService (Advanced Optical Bio-Sensor Engine)
+ * CameraCaptureService
  *
- * Controlador de hardware óptico de grado biomédico.
- * Integra:
- * 1. Solicitud de alta tasa de fotogramas (hasta 60 FPS) con baja latencia.
- * 2. Bloqueo estricto de 3A (Auto-Exposición, Auto-Balance de Blancos y Auto-Foco)
- *    para eliminar oscilaciones espurias provocadas por el algoritmo interno del ISP de la cámara.
- * 3. Control de antorcha / flash LED constante.
- * 4. Extracción de fotogramas de cero copia con sincronización por requestVideoFrameCallback.
+ * Servicio unificado de captura óptica para Web y Android Nativo (Camera2).
+ * - En Android Nativo: Se comunica con Camera2PpgPlugin en formato YUV_420_888 a 60/120 FPS.
+ * - En la Web: Aplica Bloqueo 3A de hardware (AE, AWB, AF) y sincronización con requestVideoFrameCallback.
  */
 
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { CameraState, FrameData, AdvancedCameraCapabilities } from './types';
 
+interface Camera2PpgPluginInterface {
+  startCapture(): Promise<{ status: string; format?: string; width?: number; height?: number }>;
+  stopCapture(): Promise<{ status: string }>;
+  addListener(
+    eventName: 'onOpticalFrame',
+    listenerFunc: (data: { luminance: number; timestampNanos: number; timestampMs: number }) => void
+  ): Promise<{ remove: () => Promise<void> }>;
+}
+
+const Camera2Ppg = registerPlugin<Camera2PpgPluginInterface>('Camera2Ppg');
+
 export class CameraCaptureService {
+  private isNative = Capacitor.isNativePlatform();
   private stream: MediaStream | null = null;
   private videoElement: HTMLVideoElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -21,8 +30,8 @@ export class CameraCaptureService {
   private animFrameId: number | null = null;
   private videoCallbackHandle: number | null = null;
   private onFrameCallback: ((frame: FrameData) => void) | null = null;
+  private nativeListenerHandle: { remove: () => Promise<void> } | null = null;
 
-  // Estadísticas de fotogramas
   private frameCount = 0;
   private fps = 0;
   private lastFpsUpdateTime = 0;
@@ -34,9 +43,10 @@ export class CameraCaptureService {
     hasManualFocus: false,
   };
 
-  /**
-   * Inicia la captura desde la cámara trasera con máxima tasa de fotogramas y bloqueo 3A.
-   */
+  public isNativePlatform(): boolean {
+    return this.isNative;
+  }
+
   public async start(
     videoElement: HTMLVideoElement,
     onFrame: (frame: FrameData) => void
@@ -44,7 +54,54 @@ export class CameraCaptureService {
     this.videoElement = videoElement;
     this.onFrameCallback = onFrame;
 
-    // Configuración óptica de alto rendimiento
+    if (this.isNative) {
+      try {
+        const result = await Camera2Ppg.startCapture();
+        this.nativeListenerHandle = await Camera2Ppg.addListener('onOpticalFrame', (data) => {
+          const lum = Math.min(255, Math.max(0, Math.round(data.luminance)));
+          const mockRgba = new Uint8ClampedArray(320 * 240 * 4);
+          mockRgba.fill(lum);
+
+          onFrame({
+            rgba: mockRgba,
+            width: result.width || 320,
+            height: result.height || 240,
+            timestampMs: data.timestampMs,
+          });
+        });
+
+        this.isCapturing = true;
+        return {
+          isActive: true,
+          hasTorch: true,
+          isTorchOn: true,
+          is3aLocked: true,
+          fps: 60,
+          resolution: { width: result.width || 320, height: result.height || 240 },
+          capabilities: {
+            hasTorch: true,
+            hasManualExposure: true,
+            hasManualWhiteBalance: true,
+            hasManualFocus: true,
+          },
+          error: null,
+        };
+      } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        return {
+          isActive: false,
+          hasTorch: false,
+          isTorchOn: false,
+          is3aLocked: false,
+          fps: 0,
+          resolution: { width: 0, height: 0 },
+          capabilities: this.capabilities,
+          error: errorMsg,
+        };
+      }
+    }
+
+    // Flujo Web con Bloqueo 3A
     const constraints: MediaStreamConstraints = {
       audio: false,
       video: {
@@ -63,11 +120,9 @@ export class CameraCaptureService {
       const track = this.stream.getVideoTracks()[0];
       if (track) {
         this.inspectCapabilities(track);
-        // Aplicar bloqueo 3A y encendido de flash
         await this.apply3aLockAndTorch(track, true);
       }
 
-      // Canvas de procesamiento offscreen calibrado a la resolución del video
       this.canvas = document.createElement('canvas');
       this.canvas.width = 320;
       this.canvas.height = 240;
@@ -107,9 +162,6 @@ export class CameraCaptureService {
     }
   }
 
-  /**
-   * Inspecciona las capacidades de bajo nivel expuestas por el driver de la cámara.
-   */
   private inspectCapabilities(track: MediaStreamTrack): void {
     try {
       const caps = (track as unknown as { getCapabilities?: () => Record<string, unknown> }).getCapabilities?.();
@@ -120,37 +172,19 @@ export class CameraCaptureService {
         hasManualExposure: Array.isArray(caps['exposureMode']) && (caps['exposureMode'] as string[]).includes('manual'),
         hasManualWhiteBalance: Array.isArray(caps['whiteBalanceMode']) && (caps['whiteBalanceMode'] as string[]).includes('manual'),
         hasManualFocus: Array.isArray(caps['focusMode']) && (caps['focusMode'] as string[]).includes('manual'),
-        exposureMode: caps['exposureMode'] as string[] | undefined,
-        whiteBalanceMode: caps['whiteBalanceMode'] as string[] | undefined,
-        focusMode: caps['focusMode'] as string[] | undefined,
-        minFrameRate: (caps['frameRate'] as { min?: number })?.min,
-        maxFrameRate: (caps['frameRate'] as { max?: number })?.max,
       };
     } catch {
-      // Navegador sin soporte para getCapabilities
+      // Ignorar si no está soportado
     }
   }
 
-  /**
-   * Bloquea la exposición, el balance de blancos y el enfoque automático (3A Lock)
-   * para que las variaciones lumínicas detectadas correspondan exclusivamente a la sangre pulsátil.
-   */
   public async apply3aLockAndTorch(track: MediaStreamTrack, torchOn: boolean): Promise<void> {
     try {
       const advancedConstraints: Record<string, unknown> = {};
-
-      if (this.capabilities.hasTorch) {
-        advancedConstraints['torch'] = torchOn;
-      }
-      if (this.capabilities.hasManualExposure) {
-        advancedConstraints['exposureMode'] = 'manual';
-      }
-      if (this.capabilities.hasManualWhiteBalance) {
-        advancedConstraints['whiteBalanceMode'] = 'manual';
-      }
-      if (this.capabilities.hasManualFocus) {
-        advancedConstraints['focusMode'] = 'manual';
-      }
+      if (this.capabilities.hasTorch) advancedConstraints['torch'] = torchOn;
+      if (this.capabilities.hasManualExposure) advancedConstraints['exposureMode'] = 'manual';
+      if (this.capabilities.hasManualWhiteBalance) advancedConstraints['whiteBalanceMode'] = 'manual';
+      if (this.capabilities.hasManualFocus) advancedConstraints['focusMode'] = 'manual';
 
       if (Object.keys(advancedConstraints).length > 0) {
         await (track as unknown as { applyConstraints: (c: unknown) => Promise<void> }).applyConstraints({
@@ -159,15 +193,12 @@ export class CameraCaptureService {
         this.is3aLocked = true;
       }
     } catch {
-      // Fallback si el dispositivo no soporta restricciones avanzadas
       this.is3aLocked = false;
     }
   }
 
-  /**
-   * Control manual de la antorcha / linterna LED.
-   */
   public async setTorch(on: boolean): Promise<boolean> {
+    if (this.isNative) return true;
     if (!this.stream) return false;
     const track = this.stream.getVideoTracks()[0];
     if (!track) return false;
@@ -187,7 +218,6 @@ export class CameraCaptureService {
     const processFrame = (now: number) => {
       if (!this.isCapturing) return;
 
-      // Medición de FPS en tiempo real
       this.frameCount++;
       if (now - this.lastFpsUpdateTime >= 1000) {
         this.fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdateTime));
@@ -198,7 +228,6 @@ export class CameraCaptureService {
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         const w = this.canvas!.width;
         const h = this.canvas!.height;
-
         this.ctx!.drawImage(video, 0, 0, w, h);
         const imgData = this.ctx!.getImageData(0, 0, w, h);
 
@@ -212,7 +241,6 @@ export class CameraCaptureService {
         }
       }
 
-      // Bucle de sincronización con el refresco del sensor
       if ('requestVideoFrameCallback' in video) {
         this.videoCallbackHandle = (video as unknown as {
           requestVideoFrameCallback: (cb: (now: number) => void) => number;
@@ -231,11 +259,17 @@ export class CameraCaptureService {
     }
   }
 
-  /**
-   * Detiene la captura y libera el hardware de la cámara.
-   */
-  public stop(): void {
+  public async stop(): Promise<void> {
     this.isCapturing = false;
+
+    if (this.isNative) {
+      if (this.nativeListenerHandle) {
+        await this.nativeListenerHandle.remove();
+        this.nativeListenerHandle = null;
+      }
+      await Camera2Ppg.stopCapture();
+      return;
+    }
 
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);

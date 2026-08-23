@@ -7,7 +7,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { UnifiedOpticalSensorEngine, CameraState, FrameData } from '../modules/camera';
+import { CameraCaptureService, CameraState, FrameData } from '../modules/camera';
 import { TelemetryCanvasEngine, TelemetryFrame } from '../modules/visualization';
 import { ArrhythmiaDiagnosis } from '../modules/arrhythmia';
 import { MeasurementSessionReport } from '../modules/clinical-report';
@@ -71,7 +71,7 @@ export function useCameraPulseMonitor() {
     } as ArrhythmiaDiagnosis,
   });
 
-  const cameraServiceRef = useRef<UnifiedOpticalSensorEngine | null>(null);
+  const cameraServiceRef = useRef<CameraCaptureService | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const canvasEngineRef = useRef<TelemetryCanvasEngine | null>(null);
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -171,7 +171,7 @@ export function useCameraPulseMonitor() {
     if (isMonitoring) return;
 
     if (!cameraServiceRef.current) {
-      cameraServiceRef.current = new UnifiedOpticalSensorEngine();
+      cameraServiceRef.current = new CameraCaptureService();
     }
 
     if (workerRef.current) {

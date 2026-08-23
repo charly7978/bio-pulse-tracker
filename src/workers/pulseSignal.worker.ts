@@ -4,22 +4,20 @@
  * Web Worker dedicado para procesamiento digital de señales (DSP) ópticas en tiempo real.
  * Ejecuta en un hilo aislado:
  * 1. Extracción de ROI capilar por cuadrícula de tiles.
- * 2. Validación de firma de absorción de hemoglobina.
+ * 2. Discriminación biofísica unificada de hemoglobina y vivacidad (Anti-Spoofing).
  * 3. Filtrado pasabanda Butterworth y cancelación adaptativa NLMS.
  * 4. Detección de picos sistólicos Elgendi con refinamiento Savitzky-Golay.
- * 5. Estimación de frecuencia cardíaca (BPM), SpO2, HRV y Morfología PWA.
- * 6. Validación de atractor biológico de recurrencia (SPAR).
+ * 5. Estimación de frecuencia cardíaca (BPM), SpO2, HRV, Morfología PWA y Arritmias.
  */
 
-import { SpatialCapillaryRoiExtractor, HemoglobinSpectraDetector, BiologicalLivenessAttractor, DynamicVolumetricLivenessEngine } from '../modules/optical-detection';
+import { SpatialCapillaryRoiExtractor, HemoglobinLivenessDiscriminator } from '../modules/optical-detection';
 import { PpgSignalDenoisingPipeline } from '../modules/filtering';
 import { ElgendiPeakDetector, PhysiologicalRrFilter } from '../modules/peak-detection';
 import { HrvEngine, Spo2Engine, PulseWaveAnalysisEngine } from '../modules/vital-signs';
 import { ArrhythmiaClassifier } from '../modules/arrhythmia';
 
 const spatialExtractor = new SpatialCapillaryRoiExtractor({ gridRows: 4, gridCols: 4, pixelStride: 2 });
-const hemoglobinDetector = new HemoglobinSpectraDetector();
-const dynamicLiveness = new DynamicVolumetricLivenessEngine(30, 2.0);
+const livenessDiscriminator = new HemoglobinLivenessDiscriminator(30, 2.0);
 const denoisingPipeline = new PpgSignalDenoisingPipeline(30);
 const peakDetector = new ElgendiPeakDetector({ sampleRate: 30 });
 const rrFilter = new PhysiologicalRrFilter();
@@ -27,24 +25,20 @@ const hrvEngine = new HrvEngine(30);
 const spo2Engine = new Spo2Engine(60);
 const pwaEngine = new PulseWaveAnalysisEngine();
 const arrhythmiaClassifier = new ArrhythmiaClassifier();
-const livenessAttractor = new BiologicalLivenessAttractor({ sampleRate: 30, minSamplesWindow: 45 });
-
-const signalWindowBuffer: number[] = [];
-const windowCapacity = 90; // 3 segundos a 30 fps
 
 self.onmessage = (event: MessageEvent) => {
   const { type, payload } = event.data;
 
   if (type === 'RESET') {
     spatialExtractor.reset();
-    dynamicLiveness.reset();
+    livenessDiscriminator.reset();
     denoisingPipeline.reset();
     peakDetector.reset();
     rrFilter.reset();
     hrvEngine.reset();
     spo2Engine.reset();
     pwaEngine.reset();
-    signalWindowBuffer.length = 0;
+    arrhythmiaClassifier.reset();
     self.postMessage({ type: 'RESET_CONFIRMED' });
     return;
   }
@@ -57,11 +51,17 @@ self.onmessage = (event: MessageEvent) => {
       timestampMs: number;
     };
 
-    // 1. Extracción espacial de ROI por cuadrícula de tiles
+    // 1. Extracción espacial de ROI por cuadrícula de micro-tiles
     const spatialResult = spatialExtractor.extractFromRgba(rgba, width, height);
 
-    // 2. Validación espectral de hemoglobina estática
-    const hemoglobinVerdict = hemoglobinDetector.evaluateFrame(
+    // 2. Discriminación biofísica estricta de hemoglobina y vivacidad (Anti-Spoofing)
+    livenessDiscriminator.pushSample(
+      spatialResult.weightedRed,
+      spatialResult.weightedGreen,
+      spatialResult.weightedBlue
+    );
+
+    const livenessVerdict = livenessDiscriminator.evaluate(
       spatialResult.weightedRed,
       spatialResult.weightedGreen,
       spatialResult.weightedBlue,
@@ -69,35 +69,21 @@ self.onmessage = (event: MessageEvent) => {
       spatialResult.spatialCvRed
     );
 
-    // 3. Validación dinámica de vivacidad y pulsatilidad volumétrica de hemoglobina (Anti-Spoofing Estricto)
-    dynamicLiveness.pushSample(
-      spatialResult.weightedRed,
-      spatialResult.weightedGreen,
-      spatialResult.weightedBlue
-    );
-    const livenessVerdict = dynamicLiveness.evaluateLiveness(hemoglobinVerdict.isHumanTissue);
-
     // Determinar estado de contacto estrictamente validado
     let contactState: 'NO_CONTACT' | 'UNSTABLE_CONTACT' | 'STABLE_CONTACT' = 'NO_CONTACT';
     if (livenessVerdict.isLivingBlood) {
       contactState = 'STABLE_CONTACT';
-    } else if (hemoglobinVerdict.isHumanTissue) {
-      contactState = 'UNSTABLE_CONTACT'; // Color compatible, pero validando pulso capilar
+    } else if (spatialResult.weightedRed > 40 && spatialResult.spatialCoverage > 0.4) {
+      contactState = 'UNSTABLE_CONTACT'; // Validando pulso o ajustando dedo
     }
 
-    // 3. Pipeline de filtrado y cancelación de ruido adaptativa
+    // 3. Pipeline de filtrado pasabanda y cancelación adaptativa NLMS
     const denoised = denoisingPipeline.processSample(
       spatialResult.weightedGreen,
       spatialResult.weightedBlue
     );
 
-    // Buffer de señal para atractor de vivacidad
-    signalWindowBuffer.push(denoised.agcNormalized);
-    if (signalWindowBuffer.length > windowCapacity) {
-      signalWindowBuffer.shift();
-    }
-
-    // 4. Detección de picos sistólicos
+    // 4. Detección de picos sistólicos (SOLO si hay tejido vivo activo)
     const detectedPeak = contactState === 'STABLE_CONTACT'
       ? peakDetector.processSample(denoised.agcNormalized, timestampMs)
       : null;
@@ -125,7 +111,7 @@ self.onmessage = (event: MessageEvent) => {
 
     // 7. SpO2 Engine
     spo2Engine.pushSample(spatialResult.weightedRed, spatialResult.weightedGreen);
-    const spo2Metrics = spo2Engine.computeSpo2(hemoglobinVerdict.confidence);
+    const spo2Metrics = spo2Engine.computeSpo2(livenessVerdict.confidence);
 
     // 8. HRV Metrics
     const hrvMetrics = hrvEngine.computeMetrics();
@@ -145,10 +131,7 @@ self.onmessage = (event: MessageEvent) => {
           timestampMs
         );
 
-    // 10. Atractor biológico de vivacidad
-    const attractorVerdict = livenessAttractor.evaluateSignal(signalWindowBuffer);
-
-    // 11. Emisión de telemetría completa
+    // 10. Emisión de telemetría completa
     self.postMessage({
       type: 'TELEMETRY_UPDATE',
       payload: {
@@ -158,15 +141,13 @@ self.onmessage = (event: MessageEvent) => {
         rawGreen: spatialResult.weightedGreen,
         rawBlue: spatialResult.weightedBlue,
         isPeak: detectedPeak !== null,
-        sqi: Math.min(1.0, (hemoglobinVerdict.confidence * 0.4 + livenessVerdict.confidence * 0.4 + (attractorVerdict.confidence || 0) * 0.2)),
-        pi: livenessVerdict.perfusionIndexGreen,
+        sqi: livenessVerdict.confidence,
+        pi: livenessVerdict.metrics.perfusionIndexGreen,
         bpm: contactState === 'STABLE_CONTACT' ? smoothedBpm : 0,
         instantaneousBpm: contactState === 'STABLE_CONTACT' ? instantaneousBpm : 0,
         isArrhythmiaCandidate,
         contactState,
-        hemoglobinVerdict,
         livenessVerdict,
-        attractorVerdict,
         spo2Metrics,
         hrvMetrics,
         pwaMetrics,
