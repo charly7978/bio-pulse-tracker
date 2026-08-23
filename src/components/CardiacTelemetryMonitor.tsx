@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Heart, Activity, ShieldCheck, Zap, Camera, CameraOff, Sparkles, AlertCircle, FileText, Download, CheckCircle2 } from 'lucide-react';
+import { Heart, Activity, ShieldCheck, Zap, Camera, CameraOff, FileText, Download, CheckCircle2, X } from 'lucide-react';
 import { TelemetryCanvasEngine } from '../modules/visualization';
 import { useCameraPulseMonitor } from '../hooks/useCameraPulseMonitor';
 import { ClinicalReportGenerator } from '../modules/clinical-report';
 
-export interface CardiacTelemetryMonitorProps {
-  className?: string;
-}
-
-export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMonitorProps) {
+export function CardiacTelemetryMonitor() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -36,41 +32,33 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const width = canvas.clientWidth || 600;
-    const height = canvas.clientHeight || 260;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width || 600;
+    const height = rect.height || 300;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
 
-    const engine = new TelemetryCanvasEngine({
-      width,
-      height,
-      dpr,
-    });
-
+    const engine = new TelemetryCanvasEngine({ width, height, dpr });
     registerCanvasEngine(engine);
 
-    // Bucle de renderizado continuo a 60 FPS
     let isRunning = true;
     const renderLoop = () => {
       if (!isRunning) return;
       engine.render(ctx);
       animFrameRef.current = requestAnimationFrame(renderLoop);
     };
-
     renderLoop();
 
     const handleResize = () => {
       if (!canvas) return;
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      engine.resize(w, h, dpr);
+      const r = canvas.getBoundingClientRect();
+      canvas.width = r.width * dpr;
+      canvas.height = r.height * dpr;
+      engine.resize(r.width, r.height, dpr);
     };
 
     window.addEventListener('resize', handleResize);
-
     return () => {
       isRunning = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -81,10 +69,8 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
   const handleToggleMonitoring = () => {
     if (isMonitoring) {
       stopMonitoring();
-    } else {
-      if (videoRef.current) {
-        startMonitoring(videoRef.current);
-      }
+    } else if (videoRef.current) {
+      startMonitoring(videoRef.current);
     }
   };
 
@@ -100,352 +86,251 @@ export function CardiacTelemetryMonitor({ className = '' }: CardiacTelemetryMoni
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Reporte_Cardiovascular_${report.sessionId}.csv`);
+    link.setAttribute('download', `Reporte_${report.sessionId}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  const handleDownloadMarkdown = () => {
+  const handleDownloadMd = () => {
     const report = lastReport || generateReport();
     const mdContent = ClinicalReportGenerator.generateMarkdown(report);
     const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Reporte_Cardiovascular_${report.sessionId}.md`);
+    link.setAttribute('download', `Reporte_${report.sessionId}.md`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   const sessionProgress = Math.min(100, Math.round((sessionDurationSec / 30) * 100));
+  const isStable = clinicalVitals.contactState === 'STABLE_CONTACT';
+  const isUnstable = clinicalVitals.contactState === 'UNSTABLE_CONTACT';
 
   return (
-    <div className={`glass-panel ${className}`} style={{ padding: '1.25rem', position: 'relative', overflow: 'hidden' }}>
-      {/* Video Element oculto para captura del sensor */}
+    <>
+      {/* Capa 0: Previsualización de cámara en vivo como fondo fullscreen con transparencia */}
       <video
         ref={videoRef}
         playsInline
         muted
-        style={{ display: 'none' }}
+        autoPlay
+        className="camera-bg"
+        style={{
+          opacity: isMonitoring ? 0.45 : 0,
+          transition: 'opacity 0.5s ease-in-out',
+        }}
       />
 
-      {/* Alerta de error de cámara si ocurre */}
-      {cameraState.error && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          padding: '0.75rem',
-          marginBottom: '1rem',
-          borderRadius: '0.5rem',
-          background: 'rgba(239, 68, 68, 0.15)',
-          border: '1px solid rgba(239, 68, 68, 0.3)',
-          color: '#f87171',
-          fontSize: '0.85rem'
-        }}>
-          <AlertCircle size={16} /> Error de cámara: {cameraState.error}
-        </div>
-      )}
+      {/* Capa 1: Interfaz de Monitor Cardíaco en overlay */}
+      <div className="monitor-overlay">
 
-      {/* Barra de Progreso de Sesión (30s de Calibración Fisiológica) */}
-      {isMonitoring && (
-        <div style={{ marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.35rem' }}>
-            <span>Sesión Clínica: {sessionDurationSec}s / 30s</span>
-            <span>{sessionProgress}% {isSessionComplete ? '(Sesión Completa)' : ''}</span>
-          </div>
-          <div style={{ width: '100%', height: '4px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '9999px', overflow: 'hidden' }}>
-            <div style={{
+        {/* Barra de Estado Superior */}
+        <div className="status-bar">
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f43f5e', fontWeight: 700 }}>
+            <Heart size={11} className={clinicalVitals.bpm > 0 ? 'animate-pulse' : ''} />
+            BIO-PULSE TRACKER
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isMonitoring && (
+              <>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{
+                    width: 5, height: 5, borderRadius: '50%',
+                    background: isStable ? '#4ade80' : isUnstable ? '#f59e0b' : '#64748b',
+                    display: 'inline-block',
+                    boxShadow: isStable ? '0 0 6px #4ade80' : 'none',
+                  }} />
+                  {isStable ? 'SANGRE VIVA' : isUnstable ? 'VALIDANDO...' : 'SIN CONTACTO'}
+                </span>
+                <span>{cameraState.fps} FPS</span>
+                <span>{cameraState.resolution.width}×{cameraState.resolution.height}</span>
+              </>
+            )}
+            {!isMonitoring && <span style={{ color: '#475569' }}>SENSOR INACTIVO</span>}
+          </span>
+        </div>
+
+        {/* Barra de Progreso de Sesión */}
+        {isMonitoring && (
+          <div className="session-progress">
+            <div className="session-progress-fill" style={{
               width: `${sessionProgress}%`,
-              height: '100%',
-              background: isSessionComplete ? '#10b981' : '#f43f5e',
-              transition: 'width 0.3s ease-out'
+              background: isSessionComplete
+                ? 'linear-gradient(90deg, #10b981, #34d399)'
+                : 'linear-gradient(90deg, #f43f5e, #fb7185)',
             }} />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* HUD Superior de Telemetría Clínica en Vivo */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1rem' }}>
-        <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#f43f5e', fontSize: '0.75rem', fontWeight: 600 }}>
-            <Heart size={14} className={clinicalVitals.bpm > 0 ? 'animate-pulse' : ''} /> FRECUENCIA (BPM)
+        {/* HUD de Signos Vitales */}
+        <div className="vitals-hud">
+          <div className="vital-card">
+            <div className="vital-label" style={{ color: '#f43f5e' }}>
+              <Heart size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />BPM
+            </div>
+            <div className="vital-value">{isStable && clinicalVitals.bpm > 0 ? clinicalVitals.bpm : '--'}</div>
+            <div className="vital-unit">LPM</div>
           </div>
-          <div style={{ fontSize: '1.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff', marginTop: '0.2rem' }}>
-            {clinicalVitals.bpm > 0 ? clinicalVitals.bpm : '--'}{' '}
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>LPM</span>
-          </div>
-        </div>
 
-        <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#38bdf8', fontSize: '0.75rem', fontWeight: 600 }}>
-            <Activity size={14} /> SATURACIÓN (SpO₂)
+          <div className="vital-card">
+            <div className="vital-label" style={{ color: '#38bdf8' }}>
+              <Activity size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />SpO₂
+            </div>
+            <div className="vital-value">{isStable ? `${clinicalVitals.spo2}` : '--'}</div>
+            <div className="vital-unit">%</div>
           </div>
-          <div style={{ fontSize: '1.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff', marginTop: '0.2rem' }}>
-            {clinicalVitals.contactState === 'STABLE_CONTACT' ? `${clinicalVitals.spo2}%` : '--'}
-          </div>
-        </div>
 
-        <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#a855f7', fontSize: '0.75rem', fontWeight: 600 }}>
-            <Sparkles size={14} /> HRV (RMSSD)
+          <div className="vital-card">
+            <div className="vital-label" style={{ color: '#a855f7' }}>HRV</div>
+            <div className="vital-value">{isStable && clinicalVitals.rmssd > 0 ? clinicalVitals.rmssd : '--'}</div>
+            <div className="vital-unit">ms RMSSD</div>
           </div>
-          <div style={{ fontSize: '1.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff', marginTop: '0.2rem' }}>
-            {clinicalVitals.rmssd > 0 ? clinicalVitals.rmssd : '--'}{' '}
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>ms</span>
-          </div>
-        </div>
 
-        <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.75rem', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#fbbf24', fontSize: '0.75rem', fontWeight: 600 }}>
-            <ShieldCheck size={14} /> CONTACTO
-          </div>
-          <div style={{ fontSize: '0.82rem', fontWeight: 600, marginTop: '0.6rem' }}>
-            {clinicalVitals.contactState === 'STABLE_CONTACT' ? (
-              <span style={{ color: '#4ade80' }}>SANGRE VIVA</span>
-            ) : clinicalVitals.contactState === 'UNSTABLE_CONTACT' ? (
-              <span style={{ color: '#f59e0b' }}>VALIDANDO PULSO...</span>
-            ) : (
-              <span style={{ color: '#94a3b8' }}>SIN SANGRE / INERTE</span>
-            )}
+          <div className="vital-card">
+            <div className="vital-label" style={{ color: '#fbbf24' }}>
+              <ShieldCheck size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />PRESIÓN
+            </div>
+            <div className="vital-value" style={{ fontSize: '1.0rem' }}>
+              {isStable ? `${clinicalVitals.estimatedSystolic}/${clinicalVitals.estimatedDiastolic}` : '--/--'}
+            </div>
+            <div className="vital-unit">mmHg</div>
           </div>
         </div>
-      </div>
 
-      {/* Banner de Diagnóstico de Ritmo y Arritmias */}
-      {clinicalVitals.contactState === 'STABLE_CONTACT' && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0.6rem 0.9rem',
-          marginBottom: '1rem',
-          borderRadius: '0.5rem',
-          background: clinicalVitals.arrhythmia.primaryRhythm === 'NORMAL_SINUS' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.15)',
-          border: `1px solid ${clinicalVitals.arrhythmia.primaryRhythm === 'NORMAL_SINUS' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.35)'}`,
-          fontSize: '0.82rem'
-        }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: clinicalVitals.arrhythmia.primaryRhythm === 'NORMAL_SINUS' ? '#34d399' : '#fbbf24', fontWeight: 600 }}>
-            <CheckCircle2 size={16} /> Ritmo: {clinicalVitals.arrhythmia.clinicalSummary}
-          </span>
-          <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
-            Presión Estimada: {clinicalVitals.estimatedSystolic}/{clinicalVitals.estimatedDiastolic} mmHg
-          </span>
-        </div>
-      )}
-
-      {/* Visor de Onda PPG en Tiempo Real */}
-      <div style={{ position: 'relative', width: '100%', height: '240px', borderRadius: '0.75rem', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-        <canvas
-          ref={canvasRef}
-          style={{ width: '100%', height: '100%', display: 'block' }}
-        />
-
-        {/* Guía en pantalla si no está monitoreando */}
-        {!isMonitoring && (
-          <div style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'rgba(3, 7, 18, 0.75)',
-            backdropFilter: 'blur(4px)',
-            gap: '0.75rem'
-          }}>
-            <Camera size={36} style={{ color: '#f43f5e' }} />
-            <p style={{ color: '#cbd5e1', fontSize: '0.9rem', fontWeight: 500 }}>
-              Cámara en espera. Pulsa INICIAR MONITOREO para capturar el pulso capilar.
-            </p>
+        {/* Banner de Ritmo y Arritmias */}
+        {isStable && (
+          <div className="rhythm-banner">
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: clinicalVitals.arrhythmia.primaryRhythm === 'NORMAL_SINUS' ? '#34d399' : '#fbbf24', fontWeight: 600 }}>
+              <CheckCircle2 size={13} />
+              {clinicalVitals.arrhythmia.clinicalSummary}
+            </span>
+            <span style={{ color: '#64748b', fontSize: '0.65rem' }}>
+              Estrés: {clinicalVitals.stressIndex.toFixed(1)} | SQI: {Math.round((clinicalVitals.contactState === 'STABLE_CONTACT' ? 0.85 : 0) * 100)}%
+            </span>
           </div>
         )}
-      </div>
 
-      {/* Barra de Controles en Vivo */}
-      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-        <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {isMonitoring && (
-            <>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#4ade80' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
-                Sensor 3A Bloqueado ({cameraState.fps} FPS)
-              </span>
-              <span>{cameraState.resolution.width}x{cameraState.resolution.height}</span>
-            </>
+        {/* Visor de Onda PPG - Ocupa todo el espacio central */}
+        <div className="waveform-container">
+          <canvas ref={canvasRef} className="waveform-canvas" />
+
+          {/* Guía de uso cuando no está monitoreando */}
+          {!isMonitoring && (
+            <div className="no-contact-guide">
+              <Camera size={40} style={{ color: '#f43f5e', opacity: 0.7 }} />
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500, textAlign: 'center', maxWidth: 280 }}>
+                Cubre la cámara y el flash LED con la yema de tu dedo índice. Luego pulsa <strong style={{ color: '#f43f5e' }}>INICIAR</strong>.
+              </p>
+            </div>
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {(isSessionComplete || sessionDurationSec >= 10) && (
-            <button
-              onClick={handleOpenReport}
-              style={{
-                background: 'rgba(56, 189, 248, 0.15)',
-                color: '#38bdf8',
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-                padding: '0.55rem 0.9rem',
-                borderRadius: '0.5rem',
-                cursor: 'pointer',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem'
-              }}
-            >
-              <FileText size={14} /> Reporte Clínico
-            </button>
-          )}
+        {/* Error de cámara */}
+        {cameraState.error && (
+          <div style={{
+            padding: '6px 12px',
+            background: 'rgba(239, 68, 68, 0.15)',
+            color: '#f87171',
+            fontSize: '0.72rem',
+            textAlign: 'center',
+            flexShrink: 0,
+          }}>
+            ⚠ {cameraState.error}
+          </div>
+        )}
 
-          {cameraState.hasTorch && (
-            <button
-              onClick={toggleTorch}
-              style={{
-                background: cameraState.isTorchOn ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                color: cameraState.isTorchOn ? '#fbbf24' : '#94a3b8',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                padding: '0.55rem 0.9rem',
-                borderRadius: '0.5rem',
-                cursor: 'pointer',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem'
-              }}
-            >
-              <Zap size={14} /> Flash {cameraState.isTorchOn ? 'ON' : 'OFF'}
-            </button>
-          )}
+        {/* Barra de Controles Inferior */}
+        <div className="controls-bar">
+          <div style={{ display: 'flex', gap: 6 }}>
+            {cameraState.hasTorch && (
+              <button className="btn-secondary" onClick={toggleTorch}>
+                <Zap size={12} /> {cameraState.isTorchOn ? 'LED ON' : 'LED OFF'}
+              </button>
+            )}
+            {(isSessionComplete || sessionDurationSec >= 10) && (
+              <button className="btn-secondary" onClick={handleOpenReport} style={{ color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.2)' }}>
+                <FileText size={12} /> Informe
+              </button>
+            )}
+          </div>
 
           <button
+            className="btn-monitor"
             onClick={handleToggleMonitoring}
             style={{
-              background: isMonitoring ? '#e11d48' : '#f43f5e',
-              color: '#ffffff',
-              border: 'none',
-              padding: '0.55rem 1.25rem',
-              borderRadius: '0.5rem',
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              boxShadow: isMonitoring ? '0 0 15px rgba(225, 29, 72, 0.4)' : '0 0 15px rgba(244, 63, 94, 0.3)'
+              background: isMonitoring
+                ? 'linear-gradient(135deg, #9f1239, #e11d48)'
+                : 'linear-gradient(135deg, #e11d48, #f43f5e)',
+              color: '#fff',
+              boxShadow: isMonitoring
+                ? '0 0 20px rgba(159, 18, 57, 0.5)'
+                : '0 0 20px rgba(244, 63, 94, 0.4)',
             }}
           >
-            {isMonitoring ? (
-              <>
-                <CameraOff size={16} /> DETENER MONITOREO
-              </>
-            ) : (
-              <>
-                <Camera size={16} /> INICIAR MONITOREO EN VIVO
-              </>
-            )}
+            {isMonitoring ? <><CameraOff size={16} /> DETENER</> : <><Camera size={16} /> INICIAR</>}
           </button>
         </div>
       </div>
 
       {/* Modal de Reporte Clínico */}
       {showReportModal && lastReport && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(3, 7, 18, 0.85)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 50,
-          padding: '1rem'
-        }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff' }}>Informe Clínico de Medición</h2>
-              <button
-                onClick={() => setShowReportModal(false)}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.25rem', cursor: 'pointer' }}
-              >
-                ✕
+        <div className="report-overlay" onClick={() => setShowReportModal(false)}>
+          <div className="report-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Informe Clínico</h2>
+              <button onClick={() => setShowReportModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={18} />
               </button>
             </div>
 
-            <div style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.6' }}>
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '0.5rem', marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.8rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, marginBottom: 12 }}>
                 <p><strong>ID:</strong> {lastReport.sessionId}</p>
-                <p><strong>Duración:</strong> {lastReport.durationSeconds} segundos | <strong>Calidad (SQI):</strong> {(lastReport.signalQualityIndex * 100).toFixed(0)}%</p>
-                <p><strong>Ritmo:</strong> <span style={{ color: '#4ade80' }}>{lastReport.arrhythmia.primaryRhythm}</span></p>
+                <p><strong>Duración:</strong> {lastReport.durationSeconds}s | <strong>Ritmo:</strong> <span style={{ color: '#4ade80' }}>{lastReport.arrhythmia.primaryRhythm}</span></p>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
-                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
-                  <p style={{ color: '#f43f5e', fontWeight: 600 }}>Frecuencia Cardíaca</p>
-                  <p style={{ fontSize: '1.25rem', fontWeight: 700 }}>{lastReport.averageBpm} LPM</p>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Rango: {lastReport.minBpm} - {lastReport.maxBpm} LPM</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: 10, borderRadius: 8 }}>
+                  <p style={{ color: '#f43f5e', fontWeight: 600, fontSize: '0.7rem' }}>Frecuencia</p>
+                  <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>{lastReport.averageBpm} <span style={{ fontSize: '0.65rem', color: '#64748b' }}>LPM</span></p>
+                  <p style={{ fontSize: '0.65rem', color: '#64748b' }}>Rango: {lastReport.minBpm}–{lastReport.maxBpm}</p>
                 </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
-                  <p style={{ color: '#38bdf8', fontWeight: 600 }}>Saturación SpO₂</p>
-                  <p style={{ fontSize: '1.25rem', fontWeight: 700 }}>{lastReport.spo2.spo2Percent}%</p>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Presión: {lastReport.pwa.estimatedSystolicMmHg}/{lastReport.pwa.estimatedDiastolicMmHg} mmHg</p>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: 10, borderRadius: 8 }}>
+                  <p style={{ color: '#38bdf8', fontWeight: 600, fontSize: '0.7rem' }}>SpO₂</p>
+                  <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>{lastReport.spo2.spo2Percent}%</p>
+                  <p style={{ fontSize: '0.65rem', color: '#64748b' }}>BP: {lastReport.pwa.estimatedSystolicMmHg}/{lastReport.pwa.estimatedDiastolicMmHg}</p>
                 </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
-                  <p style={{ color: '#a855f7', fontWeight: 600 }}>HRV (RMSSD / SDNN)</p>
-                  <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>{lastReport.hrv.rmssdMs} ms / {lastReport.hrv.sdnnMs} ms</p>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>pNN50: {(lastReport.hrv.pnn50Ratio * 100).toFixed(0)}%</p>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: 10, borderRadius: 8 }}>
+                  <p style={{ color: '#a855f7', fontWeight: 600, fontSize: '0.7rem' }}>HRV</p>
+                  <p style={{ fontSize: '1.0rem', fontWeight: 700 }}>{lastReport.hrv.rmssdMs} / {lastReport.hrv.sdnnMs} ms</p>
+                  <p style={{ fontSize: '0.65rem', color: '#64748b' }}>pNN50: {(lastReport.hrv.pnn50Ratio * 100).toFixed(0)}%</p>
                 </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '0.5rem' }}>
-                  <p style={{ color: '#fbbf24', fontWeight: 600 }}>Complejidad del Ritmo</p>
-                  <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>SampEn: {lastReport.arrhythmia.sampleEntropy}</p>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>PVC: {lastReport.arrhythmia.pvcCount} | PAC: {lastReport.arrhythmia.pacCount}</p>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: 10, borderRadius: 8 }}>
+                  <p style={{ color: '#fbbf24', fontWeight: 600, fontSize: '0.7rem' }}>Arritmias</p>
+                  <p style={{ fontSize: '1.0rem', fontWeight: 700 }}>SampEn: {lastReport.arrhythmia.sampleEntropy}</p>
+                  <p style={{ fontSize: '0.65rem', color: '#64748b' }}>PVC: {lastReport.arrhythmia.pvcCount} | PAC: {lastReport.arrhythmia.pacCount}</p>
                 </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-              <button
-                onClick={handleDownloadCsv}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  color: '#fff',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  padding: '0.6rem 1rem',
-                  borderRadius: '0.5rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem'
-                }}
-              >
-                <Download size={14} /> Exportar CSV
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn-secondary" onClick={handleDownloadCsv}>
+                <Download size={12} /> CSV
               </button>
               <button
-                onClick={handleDownloadMarkdown}
-                style={{
-                  background: '#f43f5e',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '0.6rem 1.2rem',
-                  borderRadius: '0.5rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem'
-                }}
+                className="btn-monitor"
+                onClick={handleDownloadMd}
+                style={{ background: '#f43f5e', color: '#fff', padding: '8px 16px', fontSize: '0.78rem' }}
               >
-                <Download size={14} /> Descargar Informe (MD)
+                <Download size={12} /> Informe MD
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
