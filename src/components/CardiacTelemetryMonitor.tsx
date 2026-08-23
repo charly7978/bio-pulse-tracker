@@ -277,9 +277,10 @@ export function CardiacTelemetryMonitor() {
           </div>
         )}
 
-        {/* ── Visor de Onda PPG (Spatial Glass Panel - Ocupa el 100% del espacio central) ── */}
+        {/* ── Visor CRT 3D — Osciloscopio médico con perspectiva real ── */}
         <div className="waveform-container">
           <canvas ref={canvasRef} className="waveform-canvas" />
+          <div className="crt-scanlines" aria-hidden="true" />
 
           {/* Guía de uso cuando no está monitoreando */}
           {!isMonitoring && (
