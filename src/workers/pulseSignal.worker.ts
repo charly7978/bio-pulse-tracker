@@ -3,10 +3,10 @@
  *
  * Web Worker dedicado para procesamiento digital de señales (DSP) ópticas en tiempo real.
  * Ejecuta en un hilo aislado:
- * 1. Extracción de ROI capilar por cuadrícula de tiles.
- * 2. Discriminación biofísica unificada de hemoglobina y vivacidad (Anti-Spoofing).
+ * 1. Extracción de ROI capilar por cuadrícula de micro-tiles adaptativos.
+ * 2. Discriminación biofísica con máquina de estados finitos e histéresis temporal (Anti-Spoofing).
  * 3. Filtrado pasabanda Butterworth y cancelación adaptativa NLMS.
- * 4. Detección de picos sistólicos Elgendi con refinamiento Savitzky-Golay.
+ * 4. Detección de picos sistólicos Elgendi con refinamiento sub-muestra Savitzky-Golay.
  * 5. Estimación de frecuencia cardíaca (BPM), SpO2, HRV, Morfología PWA y Arritmias.
  */
 
@@ -54,7 +54,7 @@ self.onmessage = (event: MessageEvent) => {
     // 1. Extracción espacial de ROI por cuadrícula de micro-tiles
     const spatialResult = spatialExtractor.extractFromRgba(rgba, width, height);
 
-    // 2. Discriminación biofísica estricta de hemoglobina y vivacidad (Anti-Spoofing)
+    // 2. Discriminación biofísica con FSM e histéresis temporal
     livenessDiscriminator.pushSample(
       spatialResult.weightedRed,
       spatialResult.weightedGreen,
@@ -69,13 +69,8 @@ self.onmessage = (event: MessageEvent) => {
       spatialResult.spatialCvRed
     );
 
-    // Determinar estado de contacto estrictamente validado
-    let contactState: 'NO_CONTACT' | 'UNSTABLE_CONTACT' | 'STABLE_CONTACT' = 'NO_CONTACT';
-    if (livenessVerdict.isLivingBlood) {
-      contactState = 'STABLE_CONTACT';
-    } else if (spatialResult.weightedRed >= 90 && spatialResult.spatialCoverage >= 0.50 && livenessVerdict.rejectionReason === 'INSUFFICIENT_SAMPLES') {
-      contactState = 'UNSTABLE_CONTACT'; // Ajustando dedo o acumulando muestras iniciales
-    }
+    const contactState = livenessVerdict.contactState;
+    const isStableBlood = contactState === 'STABLE_CONTACT';
 
     // 3. Pipeline de filtrado pasabanda y cancelación adaptativa NLMS
     const denoised = denoisingPipeline.processSample(
@@ -83,8 +78,7 @@ self.onmessage = (event: MessageEvent) => {
       spatialResult.weightedBlue
     );
 
-    // 4. Detección de picos sistólicos (SOLO si hay tejido vivo confirmado)
-    const isStableBlood = contactState === 'STABLE_CONTACT';
+    // 4. Detección de picos sistólicos (SOLO si hay contacto biológico confirmado)
     const detectedPeak = isStableBlood
       ? peakDetector.processSample(denoised.agcNormalized, timestampMs)
       : null;
@@ -147,10 +141,10 @@ self.onmessage = (event: MessageEvent) => {
           pvcCount: 0,
           pacCount: 0,
           events: [],
-          clinicalSummary: contactState === 'UNSTABLE_CONTACT' ? 'Validando pulso...' : 'En espera de contacto capilar...',
+          clinicalSummary: livenessVerdict.userGuidance,
         };
 
-    // 10. Emisión de telemetría completa (Gating estricto a cero si no hay sangre viva)
+    // 10. Emisión de telemetría completa
     self.postMessage({
       type: 'TELEMETRY_UPDATE',
       payload: {

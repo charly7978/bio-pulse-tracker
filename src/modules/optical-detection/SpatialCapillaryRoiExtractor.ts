@@ -106,11 +106,20 @@ export class SpatialCapillaryRoiExtractor {
           acDc = (maxG - minG) / meanG;
         }
 
-        // Criterio estricto de tile capilar válido bajo Flash LED:
-        // R >= 95, R/B >= 3.0, R/G >= 1.45, B <= 45
+        // Criterio cromático robusto de transiluminación dérmica:
+        const tileTotal = Math.max(1e-3, meanR + meanG + meanB);
+        const normR = meanR / tileTotal;
+        const normB = meanB / tileTotal;
         const ratioRb = meanR / Math.max(meanB, 1);
         const ratioRg = meanR / Math.max(meanG, 1);
-        const isTissueTile = meanR >= 95 && ratioRb >= 3.0 && ratioRg >= 1.45 && meanB <= 45;
+
+        const isTissueTile =
+          meanR >= 70 &&
+          normR >= 0.55 &&
+          normB <= 0.20 &&
+          meanB <= 60 &&
+          ratioRb >= 2.4 &&
+          ratioRg >= 1.15;
 
         // Ponderación por pureza capilar y pulsatilidad
         const pulsatileScore = Math.min(1.0, acDc * 50);
