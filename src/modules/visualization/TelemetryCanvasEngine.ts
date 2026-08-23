@@ -308,8 +308,11 @@ export class TelemetryCanvasEngine {
 
     if (this.lastContact !== 'STABLE_CONTACT') {
       this.drawNoContactGuidance(ctx, width, height, theme);
-      // Aún dibujar vignette/scanlines incluso sin contacto para realismo
+      // Vignette muy sutil en no-contact para no tapar guía (reducida de full a 0.3 alpha)
+      ctx.save();
+      ctx.globalAlpha = 0.45;
       this.drawVignetteAndScanlines(ctx, width, height);
+      ctx.restore();
       this.drawBottomCalibrationBar(ctx, width, height, theme);
       ctx.restore();
       return;

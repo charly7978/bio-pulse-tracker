@@ -73,11 +73,13 @@ export function CardiacTelemetryMonitor() {
     renderLoop();
 
     const applyResize = () => {
-      if (!canvas) return;
+      if (!canvas || !canvas.parentElement) return;
       const dprNow = window.devicePixelRatio || 1;
-      const r = canvas.getBoundingClientRect();
-      const w = Math.max(320, Math.floor(r.width));
-      const h = Math.max(180, Math.floor(r.height));
+      // Medir el CONTENEDOR (no el canvas transformado) para evitar que perspective distorsione getBoundingClientRect
+      const r = canvas.parentElement.getBoundingClientRect();
+      // Usar clientWidth/Height como fallback estable (no afectado por transform)
+      const w = Math.max(320, Math.floor(r.width) || canvas.parentElement.clientWidth || 600);
+      const h = Math.max(200, Math.floor(r.height) || canvas.parentElement.clientHeight || 360);
       // Solo redimensionar si cambió de forma significativa (±2px) para evitar thrashing
       if (Math.abs(canvas.width - w * dprNow) > 2 || Math.abs(canvas.height - h * dprNow) > 2) {
         canvas.width = Math.round(w * dprNow);
