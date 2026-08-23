@@ -73,8 +73,8 @@ self.onmessage = (event: MessageEvent) => {
     let contactState: 'NO_CONTACT' | 'UNSTABLE_CONTACT' | 'STABLE_CONTACT' = 'NO_CONTACT';
     if (livenessVerdict.isLivingBlood) {
       contactState = 'STABLE_CONTACT';
-    } else if (spatialResult.weightedRed > 40 && spatialResult.spatialCoverage > 0.4) {
-      contactState = 'UNSTABLE_CONTACT'; // Validando pulso o ajustando dedo
+    } else if (spatialResult.weightedRed >= 90 && spatialResult.spatialCoverage >= 0.50 && livenessVerdict.rejectionReason === 'INSUFFICIENT_SAMPLES') {
+      contactState = 'UNSTABLE_CONTACT'; // Ajustando dedo o acumulando muestras iniciales
     }
 
     // 3. Pipeline de filtrado pasabanda y cancelación adaptativa NLMS
@@ -83,8 +83,9 @@ self.onmessage = (event: MessageEvent) => {
       spatialResult.weightedBlue
     );
 
-    // 4. Detección de picos sistólicos (SOLO si hay tejido vivo activo)
-    const detectedPeak = contactState === 'STABLE_CONTACT'
+    // 4. Detección de picos sistólicos (SOLO si hay tejido vivo confirmado)
+    const isStableBlood = contactState === 'STABLE_CONTACT';
+    const detectedPeak = isStableBlood
       ? peakDetector.processSample(denoised.agcNormalized, timestampMs)
       : null;
 
@@ -92,7 +93,7 @@ self.onmessage = (event: MessageEvent) => {
     let smoothedBpm = 0;
     let isArrhythmiaCandidate = false;
 
-    if (detectedPeak) {
+    if (detectedPeak && isStableBlood) {
       const rrMetrics = rrFilter.processPeak(detectedPeak);
       if (rrMetrics && rrMetrics.isPhysiologicallyValid) {
         instantaneousBpm = rrMetrics.instantaneousBpm;
@@ -102,49 +103,67 @@ self.onmessage = (event: MessageEvent) => {
         // 5. HRV Engine
         hrvEngine.pushRrInterval(rrMetrics.rrIntervalMs);
       }
-    } else {
+    } else if (isStableBlood) {
       smoothedBpm = rrFilter.getSmoothedBpm();
     }
 
     // 6. Pulse Wave Analysis (PWA)
-    const pwaMetrics = pwaEngine.analyzePulseCycle(120, 850, smoothedBpm);
+    const pwaMetrics = isStableBlood
+      ? pwaEngine.analyzePulseCycle(120, 850, smoothedBpm)
+      : { stiffnessIndex: 0, crestTimeMs: 0, estimatedSystolicMmHg: 120, estimatedDiastolicMmHg: 80 };
 
     // 7. SpO2 Engine
-    spo2Engine.pushSample(spatialResult.weightedRed, spatialResult.weightedGreen);
-    const spo2Metrics = spo2Engine.computeSpo2(livenessVerdict.confidence);
+    if (isStableBlood) {
+      spo2Engine.pushSample(spatialResult.weightedRed, spatialResult.weightedGreen);
+    }
+    const spo2Metrics = isStableBlood
+      ? spo2Engine.computeSpo2(livenessVerdict.confidence)
+      : { spo2: 0, rValue: 0, isValid: false };
 
     // 8. HRV Metrics
-    const hrvMetrics = hrvEngine.computeMetrics();
+    const hrvMetrics = isStableBlood
+      ? hrvEngine.computeMetrics()
+      : { rmssdMs: 0, sdnnMs: 0, pnn50Percent: 0, stressIndex: 1.0, isPhysiologicallyNormal: false, sampleCount: 0 };
 
     // 9. Clasificador de Arritmias
-    const arrhythmiaDiagnosis = detectedPeak
+    const arrhythmiaDiagnosis = isStableBlood && detectedPeak
       ? arrhythmiaClassifier.processInterval(
           60000 / Math.max(30, smoothedBpm),
           smoothedBpm,
           hrvMetrics.rmssdMs,
           timestampMs
         )
-      : arrhythmiaClassifier.processInterval(
+      : isStableBlood
+      ? arrhythmiaClassifier.processInterval(
           800,
           smoothedBpm,
           hrvMetrics.rmssdMs,
           timestampMs
-        );
+        )
+      : {
+          primaryRhythm: 'NORMAL_SINUS' as const,
+          confidence: 0,
+          sampleEntropy: 0,
+          pvcCount: 0,
+          pacCount: 0,
+          events: [],
+          clinicalSummary: contactState === 'UNSTABLE_CONTACT' ? 'Validando pulso...' : 'En espera de contacto capilar...',
+        };
 
-    // 10. Emisión de telemetría completa
+    // 10. Emisión de telemetría completa (Gating estricto a cero si no hay sangre viva)
     self.postMessage({
       type: 'TELEMETRY_UPDATE',
       payload: {
         timestampMs,
-        filteredValue: denoised.agcNormalized,
+        filteredValue: isStableBlood ? denoised.agcNormalized : 0,
         rawRed: spatialResult.weightedRed,
         rawGreen: spatialResult.weightedGreen,
         rawBlue: spatialResult.weightedBlue,
         isPeak: detectedPeak !== null,
-        sqi: livenessVerdict.confidence,
-        pi: livenessVerdict.metrics.perfusionIndexGreen,
-        bpm: contactState === 'STABLE_CONTACT' ? smoothedBpm : 0,
-        instantaneousBpm: contactState === 'STABLE_CONTACT' ? instantaneousBpm : 0,
+        sqi: isStableBlood ? livenessVerdict.confidence : 0,
+        pi: isStableBlood ? livenessVerdict.metrics.perfusionIndexGreen : 0,
+        bpm: isStableBlood ? smoothedBpm : 0,
+        instantaneousBpm: isStableBlood ? instantaneousBpm : 0,
         isArrhythmiaCandidate,
         contactState,
         livenessVerdict,

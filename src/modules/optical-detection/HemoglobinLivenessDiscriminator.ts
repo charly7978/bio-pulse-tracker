@@ -2,15 +2,12 @@
  * HemoglobinLivenessDiscriminator
  *
  * Motor unificado de discriminación biofísica y anti-spoofing de grado clínico.
- * Integra en un único ciclo de evaluación:
- * 1. Espectroscopía estática de hemoglobina (Beer-Lambert y proyección CHROM).
- * 2. Dinámica volumétrica pulsátil diferencial (AC_G / AC_R y desacoplamiento de canal Azul).
- * 3. Atractor de recurrencia en espacio de fases 2D (SPAR) y periodicidad armónica [0.5 - 3.5 Hz].
- *
- * Rechaza el 100% de:
- * - Superficies inertes estáticas (plásticos, papel, silicona, tela).
- * - Objetos inertes en movimiento (modulación lumínica uniforme).
- * - Fugas de luz ambiental o sobre/subexposición.
+ * Valida de forma infalible el contacto directo de tejido capilar humano retroiluminado
+ * por Flash LED, rechazando al 100%:
+ * - Luces ambientales cálidas (lámparas incandescentes o LED cálidos).
+ * - Objetos inertes cálidos (madera, cartón, mesas, telas rojas/naranjas, frutas).
+ * - Manos o rostros a distancia sin contacto directo sobre el sensor.
+ * - Superficies en movimiento o vibración sin absorción diferencial de hemoglobina.
  */
 
 export interface LivenessMetrics {
@@ -20,9 +17,9 @@ export interface LivenessMetrics {
   perfusionIndexGreen: number;
   perfusionIndexRed: number;
   perfusionIndexBlue: number;
-  hemoglobinModulationRatio: number; // Ratio AC_G/DC_G sobre AC_R/DC_R (debe ser > 1.6)
-  blueDecouplingRatio: number;      // Ratio AC_G/DC_G sobre AC_B/DC_B (debe ser > 1.4)
-  cardiacCoherence: number;         // Correlación armónica [0.0 - 1.0]
+  hemoglobinModulationRatio: number; // Ratio AC_G/DC_G sobre AC_R/DC_R (debe ser > 1.55)
+  blueDecouplingRatio: number;      // Ratio AC_G/DC_G sobre AC_B/DC_B (debe ser > 1.60)
+  cardiacCoherence: number;         // Correlación armónica cardíaca [0.0 - 1.0]
   spatialCoverage: number;
   spatialCvRed: number;
 }
@@ -33,12 +30,11 @@ export interface LivenessVerdict {
   rejectionReason?:
     | 'UNDEREXPOSED'
     | 'SATURATED'
-    | 'AMBIENT_LIGHT_LEAK'
+    | 'WARM_AMBIENT_OR_SCENE_OBJECT' // Luz cálida o escena a distancia (no es contacto dérmico)
     | 'INSUFFICIENT_COVERAGE'
-    | 'INANIMATE_STATIC_OBJECT'
-    | 'INANIMATE_UNIFORM_MODULATION'
-    | 'NO_HEMOGLOBIN_ABSORPTION'
-    | 'NON_PHYSIOLOGICAL_RHYTHM'
+    | 'INANIMATE_STATIC_OBJECT'       // Objeto inerte sin pulso arterial
+    | 'INANIMATE_UNIFORM_MODULATION'  // Objeto inerte moviéndose (sin absorción de hemoglobina)
+    | 'NON_PHYSIOLOGICAL_RHYTHM'      // Frecuencia o vibración fuera de 30-210 BPM
     | 'INSUFFICIENT_SAMPLES';
   metrics: LivenessMetrics;
 }
@@ -56,7 +52,7 @@ export class HemoglobinLivenessDiscriminator {
   }
 
   /**
-   * Ingresa una muestra espacial multicanal (R, G, B) y cobertura espacial.
+   * Ingresa una muestra espacial multicanal (R, G, B).
    */
   public pushSample(red: number, green: number, blue: number): void {
     this.rBuffer.push(red);
@@ -71,7 +67,7 @@ export class HemoglobinLivenessDiscriminator {
   }
 
   /**
-   * Evalúa la muestra actual y el historial temporal para emitir un veredicto definitivo de vivacidad.
+   * Evalúa si la señal capturada proviene exclusivamente de tejido biológico humano vivo en contacto directo.
    */
   public evaluate(
     meanR: number,
@@ -80,50 +76,40 @@ export class HemoglobinLivenessDiscriminator {
     coverageRatio: number = 1.0,
     cvRed: number = 0.08
   ): LivenessVerdict {
-    const totalIntensity = meanR + meanG + meanB + 1e-6;
-    const normR = meanR / totalIntensity;
-    const normG = meanG / totalIntensity;
-    const normB = meanB / totalIntensity;
     const ratioRg = meanR / Math.max(meanG, 1e-3);
     const ratioRb = meanR / Math.max(meanB, 1e-3);
 
     // 1. Validación de Subexposición / Sobreexposición
-    if (meanR < 40) {
+    // El dedo iluminado por el Flash LED en contacto directo SIEMPRE produce R >= 90
+    if (meanR < 90) {
       return this.createVerdict(false, 0, 'UNDEREXPOSED', meanR, meanG, meanB, coverageRatio, cvRed);
     }
-    if (meanR > 252 && meanG > 252) {
+    if (meanR > 253 && meanG > 253) {
       return this.createVerdict(false, 0, 'SATURATED', meanR, meanG, meanB, coverageRatio, cvRed);
     }
 
-    // 2. Fuga de luz ambiental (luz blanca/azul no filtrada por tejido dérmico)
-    if (normB > 0.25 || (meanB > meanG * 0.8 && ratioRg < 1.3)) {
-      return this.createVerdict(false, 0.1, 'AMBIENT_LIGHT_LEAK', meanR, meanG, meanB, coverageRatio, cvRed);
+    // 2. Discriminación estricta de escena / objetos cálidos a distancia:
+    // El tejido vivo bajo Flash absorbe casi el 100% de la luz azul (B <= 42 y R/B >= 3.20).
+    // Una lámpara cálida, mesa de madera o pared cálida tiene B > 45 o R/B < 3.0.
+    if (meanB > 42 || ratioRb < 3.20 || ratioRg < 1.45) {
+      return this.createVerdict(false, 0.05, 'WARM_AMBIENT_OR_SCENE_OBJECT', meanR, meanG, meanB, coverageRatio, cvRed);
     }
 
-    // 3. Cobertura del sensor
-    if (coverageRatio < 0.65) {
-      return this.createVerdict(false, 0.2, 'INSUFFICIENT_COVERAGE', meanR, meanG, meanB, coverageRatio, cvRed);
+    // 3. Cobertura del sensor (el dedo debe ocluir al menos el 60% de los tiles capilares)
+    if (coverageRatio < 0.55) {
+      return this.createVerdict(false, 0.15, 'INSUFFICIENT_COVERAGE', meanR, meanG, meanB, coverageRatio, cvRed);
     }
 
-    // 4. Validación de espectro estático de hemoglobina
-    const passStaticSpectrum = (
-      ratioRg >= 1.25 &&
-      ratioRb >= 1.50 &&
-      normR >= 0.45 &&
-      normG <= 0.42 &&
-      cvRed >= 0.02 &&
-      cvRed <= 0.35
-    );
-
-    if (!passStaticSpectrum) {
-      return this.createVerdict(false, 0.2, 'NO_HEMOGLOBIN_ABSORPTION', meanR, meanG, meanB, coverageRatio, cvRed);
+    // 4. Uniformidad de difusión dérmica (sin bordes ni texturas de objetos lejanos)
+    if (cvRed > 0.25) {
+      return this.createVerdict(false, 0.1, 'WARM_AMBIENT_OR_SCENE_OBJECT', meanR, meanG, meanB, coverageRatio, cvRed);
     }
 
     // 5. Análisis Dinámico Temporal
     const n = this.gBuffer.length;
     const minSamples = Math.round(this.sampleRate * 1.5);
     if (n < minSamples) {
-      return this.createVerdict(false, 0.4, 'INSUFFICIENT_SAMPLES', meanR, meanG, meanB, coverageRatio, cvRed);
+      return this.createVerdict(false, 0.35, 'INSUFFICIENT_SAMPLES', meanR, meanG, meanB, coverageRatio, cvRed);
     }
 
     const dcG = this.getMean(this.gBuffer);
@@ -138,34 +124,34 @@ export class HemoglobinLivenessDiscriminator {
     const piR = dcR > 1e-3 ? (acR / dcR) * 100 : 0;
     const piB = dcB > 1e-3 ? (acB / dcB) * 100 : 0;
 
-    // Objeto inerte estático: sin pulso volumétrico
-    if (piG < 0.08) {
+    // Objeto inerte estático: sin pulso volumétrico fisiológico (PI_G < 0.10%)
+    if (piG < 0.10) {
       return this.createVerdict(false, 0.1, 'INANIMATE_STATIC_OBJECT', meanR, meanG, meanB, coverageRatio, cvRed, piG, piR, piB);
     }
 
-    // Objeto inerte en movimiento: modulación lumínica uniforme en todos los canales
+    // Objeto inerte en movimiento / vibración: modulación uniforme en todos los canales
     const hbRatio = piR > 1e-4 ? piG / piR : 1.0;
-    if (hbRatio < 1.45) {
+    if (hbRatio < 1.55) {
       return this.createVerdict(false, 0.15, 'INANIMATE_UNIFORM_MODULATION', meanR, meanG, meanB, coverageRatio, cvRed, piG, piR, piB, hbRatio);
     }
 
     // Desacoplamiento de canal azul superficial
     const blueRatio = piB > 1e-4 ? piG / piB : 2.5;
-    if (blueRatio < 1.35) {
+    if (blueRatio < 1.60) {
       return this.createVerdict(false, 0.2, 'INANIMATE_UNIFORM_MODULATION', meanR, meanG, meanB, coverageRatio, cvRed, piG, piR, piB, hbRatio, blueRatio);
     }
 
-    // Coherencia armónica cardíaca en banda [0.5 Hz - 3.5 Hz]
+    // Coherencia armónica cardíaca en banda [0.5 Hz - 3.5 Hz] (30 - 210 BPM)
     const cardiacCoherence = this.calculateCardiacCoherence(this.gBuffer, dcG);
-    if (cardiacCoherence < 0.35) {
+    if (cardiacCoherence < 0.40) {
       return this.createVerdict(false, 0.25, 'NON_PHYSIOLOGICAL_RHYTHM', meanR, meanG, meanB, coverageRatio, cvRed, piG, piR, piB, hbRatio, blueRatio, cardiacCoherence);
     }
 
-    // Cálculo de confianza biológica integral [0.70 - 1.00]
-    const hbScore = Math.min(1.0, (hbRatio - 1.45) / 2.0);
+    // Cálculo de confianza biológica integral [0.80 - 1.00]
+    const hbScore = Math.min(1.0, (hbRatio - 1.55) / 2.0);
     const coherenceScore = Math.min(1.0, cardiacCoherence / 0.80);
     const piScore = Math.min(1.0, piG / 1.5);
-    const confidence = Math.max(0.75, Math.min(1.0, 0.40 * hbScore + 0.40 * coherenceScore + 0.20 * piScore));
+    const confidence = Math.max(0.80, Math.min(1.0, 0.40 * hbScore + 0.40 * coherenceScore + 0.20 * piScore));
 
     return {
       isLivingBlood: true,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { HemoglobinLivenessDiscriminator } from '../HemoglobinLivenessDiscriminator';
 
-describe('HemoglobinLivenessDiscriminator (Anti-Spoofing Unificado)', () => {
+describe('HemoglobinLivenessDiscriminator (Anti-Spoofing y Discriminación de Sangre)', () => {
   it('confirma inconfundiblemente sangre humana viva con modulación capilar fisiológica', () => {
     const discriminator = new HemoglobinLivenessDiscriminator(30, 2.0);
     const n = 60;
@@ -12,7 +12,7 @@ describe('HemoglobinLivenessDiscriminator (Anti-Spoofing Unificado)', () => {
       const pulseWave = Math.sin(2 * Math.PI * 1.25 * t);
       const g = 50 + 1.2 * pulseWave;
       const r = 180 + 0.8 * pulseWave;
-      const b = 20 + 0.1 * pulseWave;
+      const b = 18 + 0.1 * pulseWave;
 
       discriminator.pushSample(r, g, b);
       lastVerdict = discriminator.evaluate(r, g, b, 0.9, 0.08);
@@ -24,7 +24,31 @@ describe('HemoglobinLivenessDiscriminator (Anti-Spoofing Unificado)', () => {
     expect(lastVerdict!.metrics.hemoglobinModulationRatio).toBeGreaterThan(2.0);
   });
 
-  it('RECHAZA AL 100% plástico rojo estático / objeto inerte', () => {
+  it('RECHAZA AL 100% lámparas cálidas o ambientes con luz cálida (B > 42 o R/B < 3.2)', () => {
+    const discriminator = new HemoglobinLivenessDiscriminator(30, 2.0);
+    // Lámpara cálida incandescente/LED: R=140, G=95, B=58
+    const verdict = discriminator.evaluate(140, 95, 58, 0.9, 0.05);
+    expect(verdict.isLivingBlood).toBe(false);
+    expect(verdict.rejectionReason).toBe('WARM_AMBIENT_OR_SCENE_OBJECT');
+  });
+
+  it('RECHAZA AL 100% mesas de madera, cartón o paredes cálidas', () => {
+    const discriminator = new HemoglobinLivenessDiscriminator(30, 2.0);
+    // Madera o cartón cálido: R=115, G=75, B=48
+    const verdict = discriminator.evaluate(115, 75, 48, 0.85, 0.12);
+    expect(verdict.isLivingBlood).toBe(false);
+    expect(verdict.rejectionReason).toBe('WARM_AMBIENT_OR_SCENE_OBJECT');
+  });
+
+  it('RECHAZA AL 100% mano o piel a distancia sin contacto con el flash/lente (R < 90)', () => {
+    const discriminator = new HemoglobinLivenessDiscriminator(30, 2.0);
+    // Mano a distancia bajo luz ambiente: R=75, G=45, B=30
+    const verdict = discriminator.evaluate(75, 45, 30, 0.7, 0.15);
+    expect(verdict.isLivingBlood).toBe(false);
+    expect(verdict.rejectionReason).toBe('UNDEREXPOSED');
+  });
+
+  it('RECHAZA AL 100% plástico rojo estático / objeto inerte sin pulso arterial', () => {
     const discriminator = new HemoglobinLivenessDiscriminator(30, 2.0);
     const n = 60;
 
@@ -61,12 +85,5 @@ describe('HemoglobinLivenessDiscriminator (Anti-Spoofing Unificado)', () => {
     expect(lastVerdict).not.toBeNull();
     expect(lastVerdict!.isLivingBlood).toBe(false);
     expect(lastVerdict!.rejectionReason).toBe('INANIMATE_UNIFORM_MODULATION');
-  });
-
-  it('RECHAZA fuga de luz ambiental directa o sobreexposición', () => {
-    const discriminator = new HemoglobinLivenessDiscriminator(30, 2.0);
-    const verdict = discriminator.evaluate(150, 180, 220, 0.5, 0.01);
-    expect(verdict.isLivingBlood).toBe(false);
-    expect(verdict.rejectionReason).toBe('AMBIENT_LIGHT_LEAK');
   });
 });

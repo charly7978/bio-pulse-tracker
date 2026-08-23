@@ -190,23 +190,39 @@ export class TelemetryCanvasEngine {
     const scaleY = (height * 0.70) / range;
     const dx = width / (this.maxSamples - 1);
 
-    // Color del trazo dinámico según calidad y contacto
-    let strokeColor = '#10b981'; // Verde esmeralda (contacto estable)
-    let glowColor = 'rgba(16, 185, 129, 0.4)';
+    // Si no hay contacto estable, dibujar línea plana centrada y mensaje de guía
+    if (this.lastContact !== 'STABLE_CONTACT') {
+      this.minVal = -1.0;
+      this.maxVal = 1.0;
 
-    if (this.lastContact === 'NO_CONTACT') {
-      strokeColor = '#64748b'; // Gris inactivo
-      glowColor = 'rgba(100, 116, 139, 0.1)';
-    } else if (this.lastContact === 'UNSTABLE_CONTACT' || this.lastSqi < 0.50) {
-      strokeColor = '#f59e0b'; // Ámbar transitorio
-      glowColor = 'rgba(245, 158, 11, 0.35)';
+      ctx.save();
+      ctx.strokeStyle = this.lastContact === 'UNSTABLE_CONTACT' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(100, 116, 139, 0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, midY);
+      ctx.lineTo(width, midY);
+      ctx.stroke();
+
+      ctx.fillStyle = this.lastContact === 'UNSTABLE_CONTACT' ? '#f59e0b' : '#64748b';
+      ctx.font = '600 12px var(--font-mono), monospace';
+      ctx.textAlign = 'center';
+      const guideText = this.lastContact === 'UNSTABLE_CONTACT'
+        ? 'ANALIZANDO FLUJO CAPILAR... MANTÉN EL DEDO FIRME'
+        : 'COLOCA Y CUBRE LA CÁMARA Y EL FLASH CON LA YEMA DEL DEDO';
+      ctx.fillText(guideText, width / 2, midY - 14);
+      ctx.restore();
+      return;
     }
+
+    const strokeColor = '#10b981';
+    const glowColor = 'rgba(16, 185, 129, 0.4)';
 
     ctx.save();
     ctx.shadowColor = glowColor;
-    ctx.shadowBlur = this.lastContact === 'STABLE_CONTACT' ? 12 : 0;
+    ctx.shadowBlur = 12;
     ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 

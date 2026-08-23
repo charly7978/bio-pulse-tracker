@@ -1,9 +1,9 @@
 /**
  * SpatialCapillaryRoiExtractor
  *
- * Divide el fotograma capturado por el sensor en una cuadrícula de tiles espaciales
- * para aislar las regiones con mayor índice de perfusión capilar y menor dispersión
- * de movimiento (Chatterjee & Budidha 2018).
+ * Divide el fotograma capturado por el sensor en una cuadrícula de 4x4 tiles espaciales
+ * para aislar las regiones con mayor índice de perfusión capilar y verificar la cobertura
+ * por contacto directo del tejido dérmico bajo iluminación del Flash LED.
  */
 
 import { SpatialRoiResult, SpatialTileMetrics } from './types';
@@ -106,10 +106,17 @@ export class SpatialCapillaryRoiExtractor {
           acDc = (maxG - minG) / meanG;
         }
 
-        // Ponderación por pureza capilar: favorece alta modulación y penaliza ruido espacial extremo
+        // Criterio estricto de tile capilar válido bajo Flash LED:
+        // R >= 95, R/B >= 3.0, R/G >= 1.45, B <= 45
+        const ratioRb = meanR / Math.max(meanB, 1);
+        const ratioRg = meanR / Math.max(meanG, 1);
+        const isTissueTile = meanR >= 95 && ratioRb >= 3.0 && ratioRg >= 1.45 && meanB <= 45;
+
+        // Ponderación por pureza capilar y pulsatilidad
         const pulsatileScore = Math.min(1.0, acDc * 50);
-        const redPurity = meanR > 50 ? meanR / (meanG + meanB + 1e-4) : 0;
-        const weight = Math.max(0.01, pulsatileScore * 0.6 + Math.min(1.0, redPurity / 3.0) * 0.4);
+        const weight = isTissueTile
+          ? Math.max(0.1, pulsatileScore * 0.7 + (ratioRg / 3.0) * 0.3)
+          : 0.001; // Penalizar fuertemente tiles que no sean tejido dérmico
 
         tiles.push({
           tileIndex,
@@ -121,7 +128,7 @@ export class SpatialCapillaryRoiExtractor {
           acDcGreen: acDc,
           spatialVariance: varianceR,
           weight,
-          isPulsatile: acDc >= 0.0005 && meanR >= 40,
+          isPulsatile: isTissueTile && acDc >= 0.001,
         });
       }
     }
