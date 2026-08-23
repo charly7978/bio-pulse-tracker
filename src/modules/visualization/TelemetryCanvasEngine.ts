@@ -5,12 +5,11 @@
  * Diseñado para 60 / 120 FPS con cero recolección de basura (GC-free) en el bucle caliente.
  *
  * Características biomédicas:
- * 1. Trazado spline continuo (Catmull-Rom) con halo de fósforo y resplandor arterial volumétrico.
- * 2. Modos duales de visualización: Barrido clínico de monitor UCI (Sweep Bar) y Flujo continuo (Roll).
- * 3. Detección visual de puntos fiduciales: Pico Sistólico (S), Muesca Dícrota (N), Cresta Diastólica (D).
- * 4. Descomposición de ondas derivadas: VPG (Velocidad dPPG/dt) y APG (Aceleración d²PPG/dt²).
- * 5. Atractor 2D de Poincaré con órbita de recurrencia de fase (SPAR) y elipse de variabilidad.
- * 6. Calibración médica estándar de cuadrícula (25 mm/s, 10 mm/mV) con tacograma de tendencia.
+ * 1. Trazado spline continuo (Catmull-Rom) con halo de fósforo CRT y resplandor arterial volumétrico.
+ * 2. Límites verticales garantizados con clamping estricto para evitar espículas o desbordamientos.
+ * 3. Detección visual de puntos fiduciales: Pico Sistólico (S) y Muesca Dícrota (N).
+ * 4. Atractor 2D de Poincaré con órbita de recurrencia de fase (SPAR).
+ * 5. Calibración médica estándar de cuadrícula (25 mm/s, 10 mm/mV) con diseño limpio y sin superposiciones.
  */
 
 import { CanvasEngineConfig, TelemetryFrame, PoincarePoint, ColorTheme, RenderMode } from './types';
@@ -19,8 +18,8 @@ export const DEFAULT_CANVAS_CONFIG: CanvasEngineConfig = {
   width: 600,
   height: 300,
   dpr: 1,
-  gridColor: 'rgba(255, 255, 255, 0.08)',
-  gridSubColor: 'rgba(255, 255, 255, 0.025)',
+  gridColor: 'rgba(255, 255, 255, 0.07)',
+  gridSubColor: 'rgba(255, 255, 255, 0.02)',
   phosphorDecay: 0.92,
   showGrid: true,
   showPoincarePlot: true,
@@ -49,10 +48,10 @@ interface ThemeColors {
 const THEME_PALETTES: Record<ColorTheme, ThemeColors> = {
   EMERALD: {
     primary: '#00f5a0',
-    primaryGlow: 'rgba(0, 245, 160, 0.45)',
+    primaryGlow: 'rgba(0, 245, 160, 0.40)',
     primaryCore: '#ffffff',
-    fillGradientTop: 'rgba(0, 245, 160, 0.28)',
-    fillGradientMid: 'rgba(0, 245, 160, 0.08)',
+    fillGradientTop: 'rgba(0, 245, 160, 0.22)',
+    fillGradientMid: 'rgba(0, 245, 160, 0.06)',
     fillGradientBottom: 'rgba(0, 245, 160, 0.0)',
     systolicMarker: '#ffffff',
     dicroticMarker: '#fbbf24',
@@ -60,10 +59,10 @@ const THEME_PALETTES: Record<ColorTheme, ThemeColors> = {
   },
   RUBY: {
     primary: '#ff2a5f',
-    primaryGlow: 'rgba(255, 42, 95, 0.50)',
+    primaryGlow: 'rgba(255, 42, 95, 0.45)',
     primaryCore: '#ffffff',
-    fillGradientTop: 'rgba(255, 42, 95, 0.30)',
-    fillGradientMid: 'rgba(255, 42, 95, 0.08)',
+    fillGradientTop: 'rgba(255, 42, 95, 0.25)',
+    fillGradientMid: 'rgba(255, 42, 95, 0.06)',
     fillGradientBottom: 'rgba(255, 42, 95, 0.0)',
     systolicMarker: '#ffffff',
     dicroticMarker: '#ffd60a',
@@ -71,10 +70,10 @@ const THEME_PALETTES: Record<ColorTheme, ThemeColors> = {
   },
   COBALT: {
     primary: '#00d2ff',
-    primaryGlow: 'rgba(0, 210, 255, 0.45)',
+    primaryGlow: 'rgba(0, 210, 255, 0.40)',
     primaryCore: '#ffffff',
-    fillGradientTop: 'rgba(0, 210, 255, 0.28)',
-    fillGradientMid: 'rgba(0, 210, 255, 0.08)',
+    fillGradientTop: 'rgba(0, 210, 255, 0.22)',
+    fillGradientMid: 'rgba(0, 210, 255, 0.06)',
     fillGradientBottom: 'rgba(0, 210, 255, 0.0)',
     systolicMarker: '#ffffff',
     dicroticMarker: '#30d158',
@@ -86,37 +85,30 @@ export class TelemetryCanvasEngine {
   private config: CanvasEngineConfig;
   private readonly maxSamples = 360; // ~12 segundos a 30 fps
   private readonly samples: Float32Array;
-  private readonly vpgSamples: Float32Array; // 1ra derivada
-  private readonly apgSamples: Float32Array; // 2da derivada
+  private readonly vpgSamples: Float32Array;
+  private readonly apgSamples: Float32Array;
   private readonly peakFlags: Uint8Array;
   private readonly dicroticFlags: Uint8Array;
 
   private sampleCount = 0;
   private writeIndex = 0;
 
-  // Búfer de tacograma de FC (últimos 30 latidos)
+  // Tacograma de tendencia de FC
   private readonly hrTrendBuffer: number[] = [];
   private readonly maxHrTrend = 30;
 
-  // Normalización adaptativa de amplitud
-  private minVal = -1.0;
-  private maxVal = 1.0;
   private lastBpm = 0;
   private lastSqi = 0;
   private lastPi = 0;
-  private lastConfidence = 0;
   private lastContact: 'NO_CONTACT' | 'UNSTABLE_CONTACT' | 'STABLE_CONTACT' = 'NO_CONTACT';
 
-  // Animación de pulso sistólico
+  // Animación de pulso
   private pulseAnimationPhase = 0;
 
   // Atractor de Poincaré 2D
   private readonly poincareBuffer: PoincarePoint[] = [];
-  private readonly maxPoincarePoints = 60;
-  private readonly tauLag = 6;
-
-  // Índice de barrido para modo SWEEP (estilo monitor de quirófano)
-  private sweepCursor = 0;
+  private readonly maxPoincarePoints = 45;
+  private readonly tauLag = 5;
 
   constructor(config: Partial<CanvasEngineConfig> = {}) {
     this.config = { ...DEFAULT_CANVAS_CONFIG, ...config };
@@ -155,12 +147,15 @@ export class TelemetryCanvasEngine {
    * Ingresa un nuevo fotograma de telemetría a los buffers circulares.
    */
   public pushFrame(frame: TelemetryFrame): void {
-    const val = frame.filteredValue;
+    // Normalizar valor recibido en rango seguro [-1.0, 1.0]
+    const rawVal = frame.filteredValue;
+    const val = Math.max(-1.0, Math.min(1.0, isNaN(rawVal) ? 0 : rawVal));
+
     const prevIdx = (this.writeIndex - 1 + this.maxSamples) % this.maxSamples;
     const prevVal = this.samples[prevIdx] || 0;
     const prevVpg = this.vpgSamples[prevIdx] || 0;
 
-    // 1. Cálculo de derivadas numéricas (VPG y APG)
+    // 1. Derivadas numéricas
     const vpg = (val - prevVal) * 30.0;
     const apg = (vpg - prevVpg) * 30.0;
 
@@ -169,22 +164,21 @@ export class TelemetryCanvasEngine {
     this.apgSamples[this.writeIndex] = apg;
     this.peakFlags[this.writeIndex] = frame.isPeak ? 1 : 0;
 
-    // 2. Detección morfométrica de la Muesca Dícrota (inflexión en descenso catacrótico)
+    // 2. Muesca dícrota
     let isDicrotic = false;
     if (this.sampleCount >= 6) {
       const idx2 = (this.writeIndex - 2 + this.maxSamples) % this.maxSamples;
       const idx4 = (this.writeIndex - 4 + this.maxSamples) % this.maxSamples;
       const v2 = this.vpgSamples[idx2]!;
       const v4 = this.vpgSamples[idx4]!;
-      // Cruce por cero o cambio de concavidad tras sístole
-      if (v4 < -0.2 && v2 >= -0.05 && vpg < 0.1) {
+      if (v4 < -0.15 && v2 >= -0.04 && vpg < 0.08) {
         isDicrotic = true;
       }
     }
     this.dicroticFlags[this.writeIndex] = isDicrotic ? 1 : 0;
 
     // 3. Atractor de Poincaré
-    if (this.sampleCount >= this.tauLag) {
+    if (this.sampleCount >= this.tauLag && frame.contactState === 'STABLE_CONTACT') {
       const tauIdx = (this.writeIndex - this.tauLag + this.maxSamples) % this.maxSamples;
       const x = val;
       const y = this.samples[tauIdx]!;
@@ -194,7 +188,7 @@ export class TelemetryCanvasEngine {
       }
     }
 
-    // 4. Registro de tendencia de FC
+    // 4. Tendencia de FC
     if (frame.isPeak && frame.bpm > 30) {
       this.hrTrendBuffer.push(frame.bpm);
       if (this.hrTrendBuffer.length > this.maxHrTrend) {
@@ -205,79 +199,69 @@ export class TelemetryCanvasEngine {
 
     this.writeIndex = (this.writeIndex + 1) % this.maxSamples;
     if (this.sampleCount < this.maxSamples) this.sampleCount++;
-    this.sweepCursor = (this.sweepCursor + 1) % this.maxSamples;
 
     this.lastBpm = frame.bpm;
     this.lastSqi = frame.sqi;
     this.lastPi = frame.pi;
-    this.lastConfidence = frame.confidence;
     this.lastContact = frame.contactState;
-
-    // Adaptación suave de rango dinámico
-    if (val < this.minVal) this.minVal = this.minVal * 0.92 + val * 0.08;
-    else this.minVal = this.minVal * 0.999 + (-0.6) * 0.001;
-
-    if (val > this.maxVal) this.maxVal = this.maxVal * 0.92 + val * 0.08;
-    else this.maxVal = this.maxVal * 0.999 + 0.6 * 0.001;
   }
 
   /**
-   * Renderiza el estado completo en el contexto 2D del Canvas.
+   * Renderiza el cuadro de animación completo sobre el elemento Canvas o Contexto 2D.
    */
-  public render(ctx: CanvasRenderingContext2D): void {
-    const { width, height, dpr, showGrid, showPoincarePlot, showFiducialPeaks, showDerivatives, showVolumetricGlow } = this.config;
+  public render(target: HTMLCanvasElement | CanvasRenderingContext2D): void {
+    let ctx: CanvasRenderingContext2D | null = null;
+    if ('getContext' in target) {
+      ctx = target.getContext('2d', { alpha: true });
+    } else {
+      ctx = target;
+    }
+    if (!ctx) return;
+
+    const width = this.config.width;
+    const height = this.config.height;
     const theme = THEME_PALETTES[this.config.colorTheme] || THEME_PALETTES.EMERALD;
 
     ctx.save();
-    ctx.scale(dpr, dpr);
-
-    // 1. Limpieza con transparencia pura
     ctx.clearRect(0, 0, width, height);
 
-    // 2. Cuadrícula médica milimétrica estándar de monitor hospitalario
-    if (showGrid) {
+    // 1. Cuadrícula médica
+    if (this.config.showGrid) {
       this.drawHospitalGrid(ctx, width, height);
     }
 
-    // Si no hay contacto estable, dibujar línea plana y mensaje clínico
+    // Si no hay contacto estable, dibujar línea guía y regresar
     if (this.lastContact !== 'STABLE_CONTACT') {
       this.drawNoContactGuidance(ctx, width, height);
       ctx.restore();
       return;
     }
 
-    // 3. Resplandor volumétrico arterial bajo la curva
-    if (showVolumetricGlow) {
+    // 2. Resplandor volumétrico arterial bajo la curva
+    if (this.config.showVolumetricGlow) {
       this.drawVolumetricBloodGlow(ctx, width, height, theme);
     }
 
-    // 4. Trazo de onda primaria PPG con Spline cúbico y halo de fósforo
+    // 3. Trazo de onda primaria PPG con Spline cúbico y halo CRT
     this.drawPrimaryPpgWaveform(ctx, width, height, theme);
 
-    // 5. Marcadores fiduciales (Pico Sistólico y Muesca Dícrota)
-    if (showFiducialPeaks) {
+    // 4. Marcadores fiduciales (Pico Sistólico y Muesca Dícrota)
+    if (this.config.showFiducialPeaks) {
       this.drawFiducialMarkers(ctx, width, height, theme);
     }
 
-    // 6. Curva derivada APG / VPG (si está habilitada en modo diagnóstico)
-    if (showDerivatives) {
+    // 5. Curva derivada APG (si está activada)
+    if (this.config.showDerivatives) {
       this.drawDerivativeWaveform(ctx, width, height, theme);
     }
 
-    // 7. Paneles HUD clínicos sobre el Canvas
-    if (this.config.showHudMetrics) {
-      this.drawClinicalHud(ctx, width, height, theme);
-    }
-
-    // 8. Atractor de Poincaré 2D
-    if (showPoincarePlot) {
+    // 6. Atractor de Poincaré 2D
+    if (this.config.showPoincarePlot && this.poincareBuffer.length > 3) {
       this.drawPoincareAttractor(ctx, width, height, theme);
     }
 
-    // 9. Tacograma de tendencia de FC
-    if (this.config.showTachogram && this.hrTrendBuffer.length > 2) {
-      this.drawHrTachogram(ctx, width, height, theme);
-    }
+    // 7. Barra de estado inferior médica
+    this.drawBottomCalibrationInfo(ctx, width, height);
 
     // Decaimiento de animación de pulso
     if (this.pulseAnimationPhase > 0) {
@@ -288,11 +272,11 @@ export class TelemetryCanvasEngine {
   }
 
   /**
-   * Cuadrícula médica estandarizada (calibración 25 mm/s, 10 mm/mV).
+   * Cuadrícula médica estandarizada (25 mm/s, 10 mm/mV).
    */
   private drawHospitalGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    const majorGrid = 40; // Cuadro mayor
-    const minorGrid = 8;  // Sub-cuadrícula milimétrica
+    const majorGrid = 44;
+    const minorGrid = 11;
 
     ctx.save();
 
@@ -324,12 +308,12 @@ export class TelemetryCanvasEngine {
     }
     ctx.stroke();
 
-    // Línea isobárica central (Eje Cero)
+    // Línea isobárica central (Línea de base)
     const midY = height / 2;
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
     ctx.lineWidth = 1.0;
-    ctx.setLineDash([6, 6]);
+    ctx.setLineDash([4, 4]);
     ctx.moveTo(0, midY);
     ctx.lineTo(width, midY);
     ctx.stroke();
@@ -338,7 +322,7 @@ export class TelemetryCanvasEngine {
   }
 
   /**
-   * Resplandor volumétrico arterial bajo la curva (gradiente dinámico).
+   * Resplandor volumétrico arterial bajo la curva.
    */
   private drawVolumetricBloodGlow(
     ctx: CanvasRenderingContext2D,
@@ -348,38 +332,43 @@ export class TelemetryCanvasEngine {
   ): void {
     if (this.sampleCount < 4) return;
 
-    const range = Math.max(0.1, this.maxVal - this.minVal);
-    const midY = height / 2;
-    const scaleY = (height * 0.65) / range;
-    const dx = width / (this.maxSamples - 1);
+    const points = this.calculateScreenPoints(width, height);
+    if (points.length < 2) return;
 
     ctx.save();
-    const grad = ctx.createLinearGradient(0, midY - height * 0.35, 0, height);
+    const grad = ctx.createLinearGradient(0, height * 0.15, 0, height);
     grad.addColorStop(0, theme.fillGradientTop);
-    grad.addColorStop(0.5, theme.fillGradientMid);
+    grad.addColorStop(0.6, theme.fillGradientMid);
     grad.addColorStop(1, theme.fillGradientBottom);
 
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(0, height);
+    ctx.moveTo(points[0]!.x, height);
+    ctx.lineTo(points[0]!.x, points[0]!.y);
 
-    for (let i = 0; i < this.sampleCount; i++) {
-      const idx = (this.writeIndex - this.sampleCount + i + this.maxSamples) % this.maxSamples;
-      const val = this.samples[idx]!;
-      const x = i * dx;
-      const y = midY - (val - (this.minVal + this.maxVal) / 2) * scaleY;
-      ctx.lineTo(x, y);
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[Math.max(0, i - 1)]!;
+      const p1 = points[i]!;
+      const p2 = points[i + 1]!;
+      const p3 = points[Math.min(points.length - 1, i + 2)]!;
+
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
     }
 
-    const lastX = (this.sampleCount - 1) * dx;
-    ctx.lineTo(lastX, height);
+    const lastPt = points[points.length - 1]!;
+    ctx.lineTo(lastPt.x, height);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
   }
 
   /**
-   * Trazo de la onda PPG con Spline cúbico y halo de fósforo CRT.
+   * Trazo de la onda PPG con Spline cúbico y halo CRT.
    */
   private drawPrimaryPpgWaveform(
     ctx: CanvasRenderingContext2D,
@@ -387,54 +376,40 @@ export class TelemetryCanvasEngine {
     height: number,
     theme: ThemeColors
   ): void {
-    if (this.sampleCount < 2) return;
-
-    const range = Math.max(0.1, this.maxVal - this.minVal);
-    const midY = height / 2;
-    const scaleY = (height * 0.65) / range;
-    const dx = width / (this.maxSamples - 1);
-
-    // Calcular puntos en pantalla
-    const points: { x: number; y: number }[] = [];
-    for (let i = 0; i < this.sampleCount; i++) {
-      const idx = (this.writeIndex - this.sampleCount + i + this.maxSamples) % this.maxSamples;
-      const val = this.samples[idx]!;
-      const x = i * dx;
-      const y = midY - (val - (this.minVal + this.maxVal) / 2) * scaleY;
-      points.push({ x, y });
-    }
+    const points = this.calculateScreenPoints(width, height);
+    if (points.length < 2) return;
 
     ctx.save();
 
     // Capa 1: Resplandor exterior (Bloom difuso)
     ctx.strokeStyle = theme.primaryGlow;
-    ctx.lineWidth = 7.0;
+    ctx.lineWidth = 6.0;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.shadowColor = theme.primary;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 14;
     this.renderSplinePath(ctx, points);
     ctx.stroke();
 
     // Capa 2: Cuerpo medio luminoso
     ctx.strokeStyle = theme.primary;
-    ctx.lineWidth = 3.2;
-    ctx.shadowBlur = 8;
+    ctx.lineWidth = 2.8;
+    ctx.shadowBlur = 6;
     this.renderSplinePath(ctx, points);
     ctx.stroke();
 
-    // Capa 3: Núcleo blanco de alta intensidad (filamento de fósforo analógico)
+    // Capa 3: Núcleo blanco de alta intensidad (filamento de fósforo)
     ctx.strokeStyle = theme.primaryCore;
-    ctx.lineWidth = 1.4;
+    ctx.lineWidth = 1.2;
     ctx.shadowBlur = 0;
     this.renderSplinePath(ctx, points);
     ctx.stroke();
 
-    // Cursor de barrido activo (si está en modo SWEEP o al final del trazado)
+    // Cursor de barrido en el extremo actual
     const tip = points[points.length - 1]!;
     ctx.fillStyle = theme.primary;
     ctx.shadowColor = theme.primary;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 12;
     ctx.beginPath();
     ctx.arc(tip.x, tip.y, 4.0, 0, Math.PI * 2);
     ctx.fill();
@@ -448,37 +423,7 @@ export class TelemetryCanvasEngine {
   }
 
   /**
-   * Traza una curva spline suave (Catmull-Rom a Bézier cúbico).
-   */
-  private renderSplinePath(ctx: CanvasRenderingContext2D, points: { x: number; y: number }[]): void {
-    if (points.length < 2) return;
-
-    ctx.beginPath();
-    ctx.moveTo(points[0]!.x, points[0]!.y);
-
-    if (points.length === 2) {
-      ctx.lineTo(points[1]!.x, points[1]!.y);
-      return;
-    }
-
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = i > 0 ? points[i - 1]! : points[i]!;
-      const p1 = points[i]!;
-      const p2 = points[i + 1]!;
-      const p3 = i < points.length - 2 ? points[i + 2]! : p2;
-
-      // Puntos de control Catmull-Rom (tensión = 0.5)
-      const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = p1.y + (p2.y - p0.y) / 6;
-      const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = p2.y - (p3.y - p1.y) / 6;
-
-      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-    }
-  }
-
-  /**
-   * Marcadores fiduciales de Pico Sistólico y Muesca Dícrota.
+   * Marcadores fiduciales discretos (Pico Sistólico S y Muesca Dícrota N).
    */
   private drawFiducialMarkers(
     ctx: CanvasRenderingContext2D,
@@ -486,45 +431,37 @@ export class TelemetryCanvasEngine {
     height: number,
     theme: ThemeColors
   ): void {
-    const range = Math.max(0.1, this.maxVal - this.minVal);
-    const midY = height / 2;
-    const scaleY = (height * 0.65) / range;
-    const dx = width / (this.maxSamples - 1);
+    const points = this.calculateScreenPoints(width, height);
+    if (points.length < 2) return;
 
     ctx.save();
+    const count = points.length;
 
-    for (let i = 0; i < this.sampleCount; i++) {
-      const idx = (this.writeIndex - this.sampleCount + i + this.maxSamples) % this.maxSamples;
-      const isPeak = this.peakFlags[idx] === 1;
-      const isDicrotic = this.config.showDicroticNotch && this.dicroticFlags[idx] === 1;
+    for (let i = 0; i < count; i++) {
+      const idx = (this.writeIndex - count + i + this.maxSamples) % this.maxSamples;
+      const pt = points[i]!;
 
-      if (!isPeak && !isDicrotic) continue;
-
-      const val = this.samples[idx]!;
-      const px = i * dx;
-      const py = midY - (val - (this.minVal + this.maxVal) / 2) * scaleY;
-
-      if (isPeak) {
-        // Marcador Sistólico (S)
-        const pulseExpand = i === this.sampleCount - 1 ? this.pulseAnimationPhase * 6 : 0;
-
+      // Pico sistólico
+      if (this.peakFlags[idx] === 1) {
         ctx.fillStyle = theme.systolicMarker;
+        ctx.shadowColor = theme.primary;
+        ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.strokeStyle = theme.primary;
         ctx.lineWidth = 1.5;
-        ctx.shadowColor = theme.primary;
-        ctx.shadowBlur = 10;
         ctx.beginPath();
-        ctx.arc(px, py, 7.5 + pulseExpand, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 6.0, 0, Math.PI * 2);
         ctx.stroke();
-      } else if (isDicrotic) {
-        // Marcador Dícroto (N)
+      }
+
+      // Muesca dícrota
+      if (this.config.showDicroticNotch && this.dicroticFlags[idx] === 1) {
         ctx.fillStyle = theme.dicroticMarker;
         ctx.beginPath();
-        ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -533,7 +470,7 @@ export class TelemetryCanvasEngine {
   }
 
   /**
-   * Curva de la 2da Derivada (APG - Aceleración de la onda de pulso).
+   * Onda derivada APG (Aceleropletismografía d²PPG/dt²).
    */
   private drawDerivativeWaveform(
     ctx: CanvasRenderingContext2D,
@@ -543,216 +480,177 @@ export class TelemetryCanvasEngine {
   ): void {
     if (this.sampleCount < 4) return;
 
+    const midY = height * 0.78;
     const dx = width / (this.maxSamples - 1);
-    const bottomY = height - 28;
-    const apgScale = 0.15;
+    const count = this.sampleCount;
 
     ctx.save();
     ctx.strokeStyle = theme.derivativeColor;
     ctx.lineWidth = 1.2;
-    ctx.shadowColor = theme.derivativeColor;
-    ctx.shadowBlur = 4;
     ctx.setLineDash([2, 2]);
-
     ctx.beginPath();
-    for (let i = 0; i < this.sampleCount; i++) {
-      const idx = (this.writeIndex - this.sampleCount + i + this.maxSamples) % this.maxSamples;
-      const apg = this.apgSamples[idx]!;
+
+    for (let i = 0; i < count; i++) {
+      const idx = (this.writeIndex - count + i + this.maxSamples) % this.maxSamples;
+      const apg = Math.max(-2, Math.min(2, this.apgSamples[idx]!));
       const x = i * dx;
-      const y = bottomY - Math.max(-20, Math.min(20, apg * apgScale));
+      const y = Math.max(height * 0.55, Math.min(height - 15, midY - apg * 12));
 
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
+
     ctx.stroke();
-
-    // Etiqueta APG
-    ctx.fillStyle = theme.derivativeColor;
-    ctx.font = '600 8px var(--font-mono), monospace';
-    ctx.fillText('APG (d²PPG/dt²)', 12, bottomY - 14);
-
     ctx.restore();
   }
 
   /**
-   * HUD de telemetría clínica integrado en el Canvas.
-   */
-  private drawClinicalHud(
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-    theme: ThemeColors
-  ): void {
-    ctx.save();
-    ctx.font = '700 11px var(--font-mono), monospace';
-
-    // 1. Frecuencia y Estado
-    ctx.fillStyle = theme.primary;
-    ctx.fillText(`${this.lastBpm > 0 ? this.lastBpm : '--'} BPM`, 14, 22);
-
-    // 2. Índice de Perfusión (PI)
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillText(`PI ${this.lastPi > 0 ? this.lastPi.toFixed(2) : '--'}%`, 85, 22);
-
-    // 3. Índice de Calidad de Señal (SQI)
-    const sqiVal = Math.round(this.lastSqi * 100);
-    const confVal = Math.round(this.lastConfidence * 100);
-    ctx.fillStyle = sqiVal >= 80 ? '#4ade80' : sqiVal >= 50 ? '#fbbf24' : '#f87171';
-    ctx.fillText(`SQI ${sqiVal}% · BIO ${confVal}%`, 160, 22);
-
-    // 4. Parámetros de calibración (Pie de gráfica)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.30)';
-    ctx.font = '500 8.5px var(--font-mono), monospace';
-    ctx.fillText('25 mm/s · Ganancia ×1.0 · Filtro [0.5–4.0 Hz]', 14, height - 10);
-
-    // 5. Barra de Medición de Perfusión (PI Bar dinámico lateral)
-    const barX = width - 14;
-    const barH = 50;
-    const barY = 16;
-    const piRatio = Math.min(1.0, this.lastPi / 4.0);
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.fillRect(barX, barY, 4, barH);
-
-    ctx.fillStyle = theme.primary;
-    ctx.fillRect(barX, barY + barH * (1 - piRatio), 4, barH * piRatio);
-
-    ctx.restore();
-  }
-
-  /**
-   * Panel de Atractor 2D de Poincaré (Espacio de fases con órbita SPAR).
+   * Atractor de recurrencia de fase 2D de Poincaré (SPAR).
    */
   private drawPoincareAttractor(
     ctx: CanvasRenderingContext2D,
     width: number,
-    height: number,
+    _height: number,
     theme: ThemeColors
   ): void {
-    const size = Math.min(76, height * 0.32);
-    const posX = width - size - 26;
-    const posY = 14;
+    const boxSize = 72;
+    const padding = 12;
+    const originX = width - boxSize - padding;
+    const originY = padding + 8;
+    const centerX = originX + boxSize / 2;
+    const centerY = originY + boxSize / 2;
+    const scale = boxSize * 0.40;
 
     ctx.save();
-    // Fondo translúcido
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+
+    // Fondo glassmórfico
+    ctx.fillStyle = 'rgba(18, 18, 22, 0.65)';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(posX, posY, size, size, 8);
+    ctx.roundRect(originX, originY, boxSize, boxSize, 8);
     ctx.fill();
     ctx.stroke();
 
-    // Título mini
+    // Ejes
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(originX + 6, centerY);
+    ctx.lineTo(originX + boxSize - 6, centerY);
+    ctx.moveTo(centerX, originY + 6);
+    ctx.lineTo(centerX, originY + boxSize - 6);
+    ctx.stroke();
+
+    // Etiqueta
     ctx.fillStyle = 'rgba(255, 255, 255, 0.40)';
-    ctx.font = '700 7.5px var(--font-mono), monospace';
-    ctx.fillText('ÓRBITA 2D', posX + 6, posY + 11);
+    ctx.font = '7px -apple-system, system-ui, sans-serif';
+    ctx.fillText('ÓRBITA 2D', originX + 6, originY + 11);
 
-    // Dibujar puntos del atractor con estela luminosa
-    const center = size / 2;
-    const scale = (size * 0.42) / Math.max(0.1, (this.maxVal - this.minVal) / 2);
-
-    for (let i = 0; i < this.poincareBuffer.length; i++) {
+    // Trazado de puntos de fase
+    const n = this.poincareBuffer.length;
+    for (let i = 0; i < n; i++) {
       const pt = this.poincareBuffer[i]!;
-      const px = posX + center + pt.x * scale;
-      const py = posY + center - pt.y * scale;
+      const alpha = (i + 1) / n;
+      const px = centerX + pt.x * scale;
+      const py = centerY - pt.y * scale;
 
-      const alpha = (i + 1) / this.poincareBuffer.length;
+      const boundedX = Math.max(originX + 4, Math.min(originX + boxSize - 4, px));
+      const boundedY = Math.max(originY + 4, Math.min(originY + boxSize - 4, py));
+
       ctx.fillStyle = theme.primary;
       ctx.globalAlpha = alpha * 0.85;
       ctx.beginPath();
-      ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+      ctx.arc(boundedX, boundedY, i === n - 1 ? 2.5 : 1.2, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.globalAlpha = 1.0;
 
     ctx.restore();
   }
 
   /**
-   * Tacograma de tendencia de FC (mini sparkline de variabilidad beat-to-beat).
+   * Barra de calibración clínica inferior.
    */
-  private drawHrTachogram(
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-    theme: ThemeColors
-  ): void {
-    const trendW = 90;
-    const trendH = 28;
-    const posX = width - trendW - 26;
-    const posY = height - trendH - 10;
-
+  private drawBottomCalibrationInfo(ctx: CanvasRenderingContext2D, _width: number, height: number): void {
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.beginPath();
-    ctx.roundRect(posX, posY, trendW, trendH, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.font = '600 7px var(--font-mono), monospace';
-    ctx.fillText('HR TREND', posX + 5, posY + 9);
-
-    const bpms = this.hrTrendBuffer;
-    const minBpm = Math.min(...bpms) - 2;
-    const maxBpm = Math.max(...bpms) + 2;
-    const rangeBpm = Math.max(5, maxBpm - minBpm);
-    const stepX = (trendW - 12) / (this.maxHrTrend - 1);
-
-    ctx.strokeStyle = theme.primary;
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-
-    for (let i = 0; i < bpms.length; i++) {
-      const x = posX + 6 + i * stepX;
-      const y = posY + trendH - 4 - ((bpms[i]! - minBpm) / rangeBpm) * (trendH - 14);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.font = '9px "JetBrains Mono", monospace';
+    ctx.fillText('25 mm/s · 10 mm/mV · FILTRO [0.65-3.5 Hz] · DERIVACIÓN I', 12, height - 10);
     ctx.restore();
   }
 
   /**
-   * Guía en pantalla si no hay contacto o la señal está calibrándose.
+   * Mensaje y línea plana en ausencia de contacto estable.
    */
-  private drawNoContactGuidance(
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number
-  ): void {
+  private drawNoContactGuidance(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     const midY = height / 2;
-    this.minVal = -1.0;
-    this.maxVal = 1.0;
 
     ctx.save();
-    const isUnstable = this.lastContact === 'UNSTABLE_CONTACT';
-    ctx.strokeStyle = isUnstable ? 'rgba(245, 158, 11, 0.45)' : 'rgba(100, 116, 139, 0.25)';
+    // Línea plana isobárica
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 5]);
     ctx.beginPath();
     ctx.moveTo(0, midY);
     ctx.lineTo(width, midY);
     ctx.stroke();
 
-    ctx.fillStyle = isUnstable ? '#f59e0b' : '#64748b';
-    ctx.font = '700 11.5px var(--font-mono), monospace';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.40)';
+    ctx.font = '600 11px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
-
-    const guideText = isUnstable
-      ? 'ANALIZANDO FLUJO CAPILAR... MANTÉN EL DEDO FIRME'
-      : 'CUBRE LA CÁMARA Y EL FLASH CON LA YEMA DEL DEDO';
-
-    ctx.fillText(guideText, width / 2, midY - 14);
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CUBRE LA CÁMARA Y EL FLASH CON LA YEMA DEL DEDO', width / 2, midY);
     ctx.restore();
   }
 
   /**
-   * Resetea todos los búferes y estados.
+   * Convierte las muestras en coordenadas de pantalla garantizando centrado y límites estrictos.
    */
+  private calculateScreenPoints(width: number, height: number): { x: number; y: number }[] {
+    const count = this.sampleCount;
+    if (count < 2) return [];
+
+    const midY = height * 0.50;
+    const amplitudeScale = height * 0.35; // Escala vertical estética (~70% de la altura total)
+    const dx = width / (this.maxSamples - 1);
+    const points: { x: number; y: number }[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const idx = (this.writeIndex - count + i + this.maxSamples) % this.maxSamples;
+      const val = this.samples[idx]!;
+      const x = i * dx;
+      // Inversión para que absorción de sangre (sístole) sea un pico positivo hacia arriba
+      const rawY = midY - val * amplitudeScale;
+      // Clamping estricto para no tocar los bordes del contenedor
+      const y = Math.max(14, Math.min(height - 14, rawY));
+      points.push({ x, y });
+    }
+
+    return points;
+  }
+
+  /**
+   * Trazado de spline cúbico Catmull-Rom continuo.
+   */
+  private renderSplinePath(ctx: CanvasRenderingContext2D, points: { x: number; y: number }[]): void {
+    if (points.length < 2) return;
+
+    ctx.beginPath();
+    ctx.moveTo(points[0]!.x, points[0]!.y);
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[Math.max(0, i - 1)]!;
+      const p1 = points[i]!;
+      const p2 = points[i + 1]!;
+      const p3 = points[Math.min(points.length - 1, i + 2)]!;
+
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+    }
+  }
+
   public reset(): void {
     this.samples.fill(0);
     this.vpgSamples.fill(0);
@@ -761,11 +659,11 @@ export class TelemetryCanvasEngine {
     this.dicroticFlags.fill(0);
     this.sampleCount = 0;
     this.writeIndex = 0;
-    this.sweepCursor = 0;
     this.poincareBuffer.length = 0;
     this.hrTrendBuffer.length = 0;
-    this.minVal = -1.0;
-    this.maxVal = 1.0;
-    this.pulseAnimationPhase = 0;
+    this.lastBpm = 0;
+    this.lastSqi = 0;
+    this.lastPi = 0;
+    this.lastContact = 'NO_CONTACT';
   }
 }

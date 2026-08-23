@@ -4,6 +4,7 @@
  * Motor de Variabilidad de la Frecuencia Cardíaca (HRV) según las directrices de la
  * Task Force of ESC/NASPE (1996) y Tarvainen et al. (2014).
  * Calcula RMSSD, SDNN, pNN50 y métricas de dispersión no lineal de Poincaré (SD1, SD2).
+ * Incorpora filtrado estricto de intervalos ectópicos para evitar mediciones anómalas.
  */
 
 import { HrvMetrics } from './types';
@@ -17,10 +18,21 @@ export class HrvEngine {
   }
 
   /**
-   * Agrega un nuevo intervalo RR válido en milisegundos.
+   * Agrega un nuevo intervalo RR válido en milisegundos con filtrado de ectopias.
    */
   public pushRrInterval(rrMs: number): void {
-    if (rrMs < 270 || rrMs > 2000) return; // Filtrado de intervalos no fisiológicos
+    // 1. Filtrado de límites fisiológicos absolutos [300 ms - 1800 ms] (33 - 200 LPM)
+    if (rrMs < 300 || rrMs > 1800) return;
+
+    // 2. Filtrado de saltos no fisiológicos respecto al último intervalo registrado
+    if (this.rrBuffer.length > 0) {
+      const lastRr = this.rrBuffer[this.rrBuffer.length - 1]!;
+      const delta = Math.abs(rrMs - lastRr);
+      // Un salto mayor a 280 ms en un solo latido se clasifica como artefacto o latido perdido
+      if (delta > 280) {
+        return;
+      }
+    }
 
     this.rrBuffer.push(rrMs);
     if (this.rrBuffer.length > this.maxCapacity) {
@@ -33,7 +45,7 @@ export class HrvEngine {
    */
   public computeMetrics(): HrvMetrics {
     const n = this.rrBuffer.length;
-    if (n < 4) {
+    if (n < 5) {
       return {
         rmssdMs: 0,
         sdnnMs: 0,
@@ -69,16 +81,19 @@ export class HrvEngine {
       }
     }
 
-    const rmssd = Math.sqrt(diffSqSum / (n - 1));
+    const rawRmssd = Math.sqrt(diffSqSum / (n - 1));
     const pnn50Ratio = count50 / (n - 1);
 
-    // 3. Métricas de Poincaré (SD1 = variabilidad a corto plazo, SD2 = a largo plazo)
+    // Acotar RMSSD a límites fisiológicos humanos normales (10 - 150 ms)
+    const rmssd = Math.min(150, Math.max(10, rawRmssd));
+
+    // 3. Métricas de Poincaré
     const sd1 = rmssd / Math.SQRT2;
     const sd2Arg = 2 * sdnn * sdnn - 0.5 * rmssd * rmssd;
     const sd2 = Math.sqrt(Math.max(0, sd2Arg));
 
     // Stress Index proxy (proporción simpático-vagal SD2 / SD1)
-    const stressIndex = sd1 > 1e-3 ? sd2 / sd1 : 1.0;
+    const stressIndex = sd1 > 1e-3 ? Math.min(10, sd2 / sd1) : 1.0;
 
     return {
       rmssdMs: Math.round(rmssd * 10) / 10,

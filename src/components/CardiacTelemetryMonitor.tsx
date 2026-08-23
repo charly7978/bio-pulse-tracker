@@ -241,7 +241,7 @@ export function CardiacTelemetryMonitor() {
           <div className="vital-card">
             <div className="vital-label" style={{ color: 'var(--accent-hrv)' }}>HRV</div>
             <div className="vital-value">
-              {isStable && clinicalVitals.rmssd > 0 ? clinicalVitals.rmssd : '—'}
+              {isStable && clinicalVitals.rmssd > 0 ? Math.round(clinicalVitals.rmssd) : '—'}
             </div>
             <div className="vital-unit">ms</div>
           </div>
