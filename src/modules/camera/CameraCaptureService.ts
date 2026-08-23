@@ -1,27 +1,17 @@
 /**
  * CameraCaptureService
  *
- * Servicio unificado de captura óptica para Web y Android Nativo (Camera2).
- * - En Android Nativo: Se comunica con Camera2PpgPlugin en formato YUV_420_888 a 60/120 FPS.
- * - En la Web: Aplica Bloqueo 3A de hardware (AE, AWB, AF) y sincronización con requestVideoFrameCallback.
+ * Servicio unificado de captura óptica para Web y Android Nativo.
+ * Aplica:
+ * 1. Conexión directa a la cámara trasera con fallback automático de resolución.
+ * 2. Bloqueo 3A de hardware (AE, AWB, AF) y activación del Flash LED (Torch).
+ * 3. Enrutamiento del flujo de video en vivo al elemento <video> en pantalla completa.
+ * 4. Extracción de fotogramas RGBA en tiempo real mediante requestVideoFrameCallback / requestAnimationFrame.
  */
 
-import { Capacitor, registerPlugin } from '@capacitor/core';
 import { CameraState, FrameData, AdvancedCameraCapabilities } from './types';
 
-interface Camera2PpgPluginInterface {
-  startCapture(): Promise<{ status: string; format?: string; width?: number; height?: number }>;
-  stopCapture(): Promise<{ status: string }>;
-  addListener(
-    eventName: 'onOpticalFrame',
-    listenerFunc: (data: { luminance: number; timestampNanos: number; timestampMs: number }) => void
-  ): Promise<{ remove: () => Promise<void> }>;
-}
-
-const Camera2Ppg = registerPlugin<Camera2PpgPluginInterface>('Camera2Ppg');
-
 export class CameraCaptureService {
-  private isNative = Capacitor.isNativePlatform();
   private stream: MediaStream | null = null;
   private videoElement: HTMLVideoElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -30,7 +20,6 @@ export class CameraCaptureService {
   private animFrameId: number | null = null;
   private videoCallbackHandle: number | null = null;
   private onFrameCallback: ((frame: FrameData) => void) | null = null;
-  private nativeListenerHandle: { remove: () => Promise<void> } | null = null;
 
   private frameCount = 0;
   private fps = 0;
@@ -44,7 +33,7 @@ export class CameraCaptureService {
   };
 
   public isNativePlatform(): boolean {
-    return this.isNative;
+    return false;
   }
 
   public async start(
@@ -54,67 +43,60 @@ export class CameraCaptureService {
     this.videoElement = videoElement;
     this.onFrameCallback = onFrame;
 
-    if (this.isNative) {
+    // Asegurar atributos clave para reproducción inline en Android WebView / iOS
+    videoElement.setAttribute('playsinline', 'true');
+    videoElement.setAttribute('webkit-playsinline', 'true');
+    videoElement.setAttribute('autoplay', 'true');
+    videoElement.muted = true;
+
+    // Estrategias de constraints con fallback progresivo
+    const constraintStrategies: MediaStreamConstraints[] = [
+      {
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 640, min: 320 },
+          height: { ideal: 480, min: 240 },
+          frameRate: { ideal: 60, min: 30 },
+        },
+      },
+      {
+        audio: false,
+        video: {
+          facingMode: 'environment',
+        },
+      },
+      {
+        audio: false,
+        video: true,
+      },
+    ];
+
+    let lastError: Error | null = null;
+
+    for (const constraints of constraintStrategies) {
       try {
-        const result = await Camera2Ppg.startCapture();
-        this.nativeListenerHandle = await Camera2Ppg.addListener('onOpticalFrame', (data) => {
-          const lum = Math.min(255, Math.max(0, Math.round(data.luminance)));
-          const mockRgba = new Uint8ClampedArray(320 * 240 * 4);
-          mockRgba.fill(lum);
-
-          onFrame({
-            rgba: mockRgba,
-            width: result.width || 320,
-            height: result.height || 240,
-            timestampMs: data.timestampMs,
-          });
-        });
-
-        this.isCapturing = true;
-        return {
-          isActive: true,
-          hasTorch: true,
-          isTorchOn: true,
-          is3aLocked: true,
-          fps: 60,
-          resolution: { width: result.width || 320, height: result.height || 240 },
-          capabilities: {
-            hasTorch: true,
-            hasManualExposure: true,
-            hasManualWhiteBalance: true,
-            hasManualFocus: true,
-          },
-          error: null,
-        };
+        this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+        break;
       } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        return {
-          isActive: false,
-          hasTorch: false,
-          isTorchOn: false,
-          is3aLocked: false,
-          fps: 0,
-          resolution: { width: 0, height: 0 },
-          capabilities: this.capabilities,
-          error: errorMsg,
-        };
+        lastError = err instanceof Error ? err : new Error(String(err));
       }
     }
 
-    // Flujo Web con Bloqueo 3A
-    // Request higher resolution for the live preview; processing canvas downsamples to 320x240
-    const constraints: MediaStreamConstraints = {
-      audio: false,
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 640, min: 320 },
-        height: { ideal: 480, min: 240 },
-        frameRate: { ideal: 60, min: 30 },
-      },
-    };
+    if (!this.stream) {
+      return {
+        isActive: false,
+        hasTorch: false,
+        isTorchOn: false,
+        is3aLocked: false,
+        fps: 0,
+        resolution: { width: 0, height: 0 },
+        capabilities: this.capabilities,
+        error: lastError ? lastError.message : 'No se pudo acceder a la cámara del dispositivo',
+      };
+    }
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia(constraints);
       videoElement.srcObject = this.stream;
       await videoElement.play();
 
@@ -140,7 +122,7 @@ export class CameraCaptureService {
         hasTorch: this.capabilities.hasTorch,
         isTorchOn: this.capabilities.hasTorch,
         is3aLocked: this.is3aLocked,
-        fps: this.fps,
+        fps: this.fps || 30,
         resolution: {
           width: settings?.width || 320,
           height: settings?.height || 240,
@@ -175,7 +157,7 @@ export class CameraCaptureService {
         hasManualFocus: Array.isArray(caps['focusMode']) && (caps['focusMode'] as string[]).includes('manual'),
       };
     } catch {
-      // Ignorar si no está soportado
+      // Ignorar si el navegador no expone getCapabilities
     }
   }
 
@@ -199,7 +181,6 @@ export class CameraCaptureService {
   }
 
   public async setTorch(on: boolean): Promise<boolean> {
-    if (this.isNative) return true;
     if (!this.stream) return false;
     const track = this.stream.getVideoTracks()[0];
     if (!track) return false;
@@ -262,15 +243,6 @@ export class CameraCaptureService {
 
   public async stop(): Promise<void> {
     this.isCapturing = false;
-
-    if (this.isNative) {
-      if (this.nativeListenerHandle) {
-        await this.nativeListenerHandle.remove();
-        this.nativeListenerHandle = null;
-      }
-      await Camera2Ppg.stopCapture();
-      return;
-    }
 
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);

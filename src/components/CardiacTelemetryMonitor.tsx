@@ -163,6 +163,8 @@ export function CardiacTelemetryMonitor() {
         playsInline
         muted
         autoPlay
+        disablePictureInPicture
+        controls={false}
         className="camera-bg"
         style={{ opacity: isMonitoring ? 0.80 : 0 }}
       />
