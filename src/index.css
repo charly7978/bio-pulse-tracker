@@ -1,11 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 :root {
-  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-  --color-primary: #f43f5e;
-  --color-primary-glow: rgba(244, 63, 94, 0.35);
-  --color-bg: #000000;
-  --color-card: rgba(8, 12, 24, 0.72);
-  --color-border: rgba(255, 255, 255, 0.06);
+
+  /* Spatial depth palette */
+  --spatial-bg: #000000;
+  --spatial-glass: rgba(28, 28, 30, 0.62);
+  --spatial-glass-hover: rgba(44, 44, 46, 0.70);
+  --spatial-glass-elevated: rgba(38, 38, 42, 0.78);
+  --spatial-border: rgba(255, 255, 255, 0.08);
+  --spatial-border-light: rgba(255, 255, 255, 0.12);
+  --spatial-shadow: 0 2px 20px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --spatial-shadow-elevated: 0 8px 40px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  --spatial-inset-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* Accent colors */
+  --accent-heart: #ff375f;
+  --accent-spo2: #30d5c8;
+  --accent-hrv: #bf5af2;
+  --accent-bp: #ffd60a;
+  --accent-ok: #30d158;
+  --accent-warn: #ff9f0a;
+  --accent-signal: #64d2ff;
 }
 
 * {
@@ -19,8 +36,8 @@ html, body, #root {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #000;
-  color: #f8fafc;
+  background: var(--spatial-bg);
+  color: #f5f5f7;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -29,30 +46,7 @@ html, body, #root {
   touch-action: manipulation;
 }
 
-/* Glassmorphism panel */
-.glass-panel {
-  background: var(--color-card);
-  backdrop-filter: blur(24px) saturate(1.6);
-  -webkit-backdrop-filter: blur(24px) saturate(1.6);
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
-}
-
-.glow-rose {
-  box-shadow: 0 0 30px var(--color-primary-glow);
-}
-
-/* Pulse animation */
-@keyframes pulse-glow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.animate-pulse {
-  animation: pulse-glow 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Fullscreen camera background */
+/* ─── Camera Background ─── */
 .camera-bg {
   position: fixed;
   inset: 0;
@@ -61,11 +55,12 @@ html, body, #root {
   width: 100%;
   height: 100%;
   transform: scaleX(-1);
-  filter: brightness(0.35) contrast(1.2) saturate(0.5);
+  filter: brightness(0.30) contrast(1.15) saturate(0.4);
   pointer-events: none;
+  transition: opacity 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-/* Main overlay container */
+/* ─── Monitor Overlay (Spatial Depth Layering) ─── */
 .monitor-overlay {
   position: fixed;
   inset: 0;
@@ -75,153 +70,151 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* Status bar top */
+/* ─── Status Bar (Z-depth: highest) ─── */
 .status-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(12px);
-  font-size: 0.68rem;
-  color: #94a3b8;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.50);
+  backdrop-filter: blur(30px) saturate(1.8);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ─── Session Progress ─── */
+.session-progress {
+  width: 100%;
+  height: 2.5px;
+  background: rgba(255, 255, 255, 0.04);
   flex-shrink: 0;
 }
 
-/* Vital signs HUD */
+.session-progress-fill {
+  height: 100%;
+  border-radius: 0 2px 2px 0;
+  transition: width 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+/* ─── Vitals HUD (Spatial Glass Cards) ─── */
 .vitals-hud {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  padding: 6px 8px;
+  gap: 6px;
+  padding: 8px 10px;
   flex-shrink: 0;
 }
 
 .vital-card {
-  background: rgba(0, 0, 0, 0.50);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 8px;
-  padding: 6px 8px;
+  background: var(--spatial-glass);
+  backdrop-filter: blur(40px) saturate(1.6);
+  -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  border: 0.5px solid var(--spatial-border);
+  border-radius: 14px;
+  padding: 8px 10px;
   text-align: center;
+  box-shadow: var(--spatial-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.vital-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.vital-card:active {
+  transform: scale(0.97);
+  box-shadow: var(--spatial-shadow-elevated);
 }
 
 .vital-label {
-  font-size: 0.58rem;
+  font-size: 0.55rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+  opacity: 0.85;
 }
 
 .vital-value {
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   font-weight: 800;
   font-family: var(--font-mono);
-  color: #fff;
-  line-height: 1.1;
+  color: #ffffff;
+  line-height: 1.15;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.10);
 }
 
 .vital-unit {
-  font-size: 0.55rem;
-  color: #64748b;
-  font-weight: 500;
+  font-size: 0.5rem;
+  color: rgba(255, 255, 255, 0.35);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-top: 1px;
 }
 
-/* Waveform canvas container */
+/* ─── Rhythm Banner ─── */
+.rhythm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 10px;
+  padding: 6px 14px;
+  background: var(--spatial-glass);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 0.5px solid var(--spatial-border);
+  border-radius: 10px;
+  font-size: 0.70rem;
+  flex-shrink: 0;
+  box-shadow: var(--spatial-shadow);
+  margin-bottom: 6px;
+}
+
+/* ─── Waveform Container (Main Content Area) ─── */
 .waveform-container {
   flex: 1;
   position: relative;
   min-height: 0;
   overflow: hidden;
+  margin: 0 10px;
+  border-radius: 16px;
+  background: var(--spatial-glass);
+  backdrop-filter: blur(40px) saturate(1.6);
+  -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  border: 0.5px solid var(--spatial-border);
+  box-shadow: var(--spatial-shadow-elevated);
+}
+
+.waveform-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 30%);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .waveform-canvas {
   width: 100%;
   height: 100%;
   display: block;
+  border-radius: 16px;
 }
 
-/* Rhythm banner */
-.rhythm-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 12px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-size: 0.72rem;
-  flex-shrink: 0;
-}
-
-/* Bottom controls */
-.controls-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.60);
-  backdrop-filter: blur(16px);
-  flex-shrink: 0;
-  gap: 8px;
-}
-
-.btn-monitor {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 20px;
-  border-radius: 12px;
-  border: none;
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 700;
-  font-family: var(--font-sans);
-  transition: all 0.2s ease;
-}
-
-.btn-monitor:active {
-  transform: scale(0.96);
-}
-
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
-  color: #cbd5e1;
-  cursor: pointer;
-  font-size: 0.72rem;
-  font-weight: 600;
-  font-family: var(--font-sans);
-  transition: all 0.15s ease;
-}
-
-.btn-secondary:active {
-  transform: scale(0.96);
-  background: rgba(255, 255, 255, 0.10);
-}
-
-/* Progress bar */
-.session-progress {
-  width: 100%;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.06);
-  flex-shrink: 0;
-}
-
-.session-progress-fill {
-  height: 100%;
-  transition: width 0.3s ease-out;
-}
-
-/* No-contact fullscreen guide */
+/* ─── No-contact Guide Overlay ─── */
 .no-contact-guide {
   position: absolute;
   inset: 0;
@@ -229,32 +222,197 @@ html, body, #root {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.40);
+  gap: 14px;
+  z-index: 2;
   pointer-events: none;
 }
 
-/* Report modal */
+.guide-icon-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 55, 95, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 55, 95, 0.06);
+  animation: guide-pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes guide-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; border-color: rgba(255, 55, 95, 0.25); }
+  50% { transform: scale(1.06); opacity: 1; border-color: rgba(255, 55, 95, 0.45); }
+}
+
+/* ─── Controls Bar (Bottom, Spatial Float) ─── */
+.controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  margin: 8px 10px 10px;
+  background: var(--spatial-glass-elevated);
+  backdrop-filter: blur(40px) saturate(1.7);
+  -webkit-backdrop-filter: blur(40px) saturate(1.7);
+  border: 0.5px solid var(--spatial-border-light);
+  border-radius: 18px;
+  flex-shrink: 0;
+  box-shadow: var(--spatial-shadow-elevated);
+  gap: 8px;
+}
+
+.btn-monitor {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 24px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  letter-spacing: 0.02em;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-monitor::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.btn-monitor:active {
+  transform: scale(0.95);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  border: 0.5px solid var(--spatial-border-light);
+  background: var(--spatial-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  transition: transform 0.15s ease, background 0.15s ease;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.25);
+}
+
+.btn-secondary:active {
+  transform: scale(0.95);
+  background: var(--spatial-glass-hover);
+}
+
+/* ─── Pulse Animation ─── */
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  15% { transform: scale(1.2); }
+  30% { transform: scale(1); }
+  45% { transform: scale(1.12); }
+  60% { transform: scale(1); }
+}
+
+.animate-pulse {
+  animation: heartbeat 1s ease-in-out infinite;
+}
+
+/* ─── Contact Indicator Dot ─── */
+.contact-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  transition: all 0.3s ease;
+}
+
+.contact-dot--stable {
+  background: var(--accent-ok);
+  box-shadow: 0 0 8px var(--accent-ok), 0 0 16px rgba(48, 209, 88, 0.25);
+}
+
+.contact-dot--unstable {
+  background: var(--accent-warn);
+  box-shadow: 0 0 6px var(--accent-warn);
+  animation: guide-pulse 1.5s infinite;
+}
+
+.contact-dot--none {
+  background: rgba(255, 255, 255, 0.20);
+}
+
+/* ─── Report Modal (Spatial Sheet) ─── */
 .report-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(12px);
+  background: rgba(0, 0, 0, 0.70);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  padding: 16px;
+  padding: 0;
+  animation: sheet-bg-in 0.3s ease-out;
+}
+
+@keyframes sheet-bg-in {
+  from { background: rgba(0, 0, 0, 0); }
+  to { background: rgba(0, 0, 0, 0.70); }
 }
 
 .report-card {
   width: 100%;
-  max-width: 520px;
-  max-height: 90vh;
+  max-width: 540px;
+  max-height: 85vh;
   overflow-y: auto;
-  background: rgba(10, 15, 30, 0.92);
-  backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 16px;
-  padding: 20px;
+  background: var(--spatial-glass-elevated);
+  backdrop-filter: blur(50px) saturate(1.8);
+  -webkit-backdrop-filter: blur(50px) saturate(1.8);
+  border: 0.5px solid var(--spatial-border-light);
+  border-radius: 20px 20px 0 0;
+  padding: 24px 20px 32px;
+  box-shadow: 0 -10px 60px rgba(0, 0, 0, 0.50);
+  animation: sheet-slide-up 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
+
+@keyframes sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.report-card .sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+  margin: 0 auto 16px;
+}
+
+/* ─── Error Banner ─── */
+.error-banner {
+  padding: 6px 14px;
+  background: rgba(255, 55, 95, 0.10);
+  border-top: 0.5px solid rgba(255, 55, 95, 0.20);
+  color: var(--accent-heart);
+  font-size: 0.70rem;
+  font-weight: 500;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ─── Scrollbar (minimal) ─── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 9999px; }
